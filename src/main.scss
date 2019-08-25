@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css?family=Niramit:400,700&display=swap&subset=thai');
+@import url('https://fonts.googleapis.com/css?family=Kanit:200,300,400,700&display=swap');
+$dark: #363636;
+$primary: #942c35;
+$warning: #e9f092;
+$white: #f3f3f0;
+
+._fullwidth {
+  min-width: 100%;
+}
+._fullheight {
+  min-height: 100%;
+}
+.fullscreen {
+  min-height: 100vh;
+}
+._flex {
+  display: flex;
+}
+._mcenter {
+  margin-left: auto;
+  margin-right: auto;
+}
+._mmiddle {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+._jcenter {
+  @extend ._flex;
+  justify-content: center;
+}
+._vmiddle {
+  @extend ._flex;
+  vertical-align: middle;
+}
+
+body {
+  margin: 0 !important;
+  padding: 0 !important;
+  font-family: 'Kanit', 'Niramit', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    'Segoe UI Symbol';
+}
+
+.input,
+.button {
+  padding: 0.5rem 0.75rem;
+  border-radius: 5px;
+  border-width: 1px;
+  border-color: rgb(216, 216, 216) rgb(209, 209, 209) rgb(224, 114, 114);
+}
+
+.section {
+  padding: 0;
+}
+
+.nav {
+  width: 100%;
+  display: flex;
+  justify-content: space-around;
+  background-color: $dark;
+  height: 30px;
+  position: fixed;
+  &.-transparent {
+    background-color: transparent;
+  }
+  > .item {
+    color: white;
+    margin: auto auto;
+  }
+}
