@@ -74,7 +74,7 @@
 
 {#if visible}
   <div id="slide1">
-    <a id="abs-contact" href="tel:0847550825">
+    <a aria-label="call phone" id="abs-contact" href="tel:0847550825">
       <Icon icon={faPhoneAlt} class="fa-1x" />
       <span>084-755-0825</span>
     </a>
@@ -89,10 +89,10 @@
       <br />
     </div>
     <div class="footer" in:fly={{ y: -20, duration: 1400, delay: 1700 }}>
-      <a href="https://facebook.com/bankamnodchivit">
+      <a aria-label="facebook link" href="https://facebook.com/bankamnodchivit">
         <Icon icon={faFacebookSquare} class="fa-2x" />
       </a>
-      <a href="https://facebook.com/bankamnodchivit">
+      <a aria-label="line link" href="https://facebook.com/bankamnodchivit">
         <Icon icon={faLine} class="fa-2x" />
       </a>
     </div>
