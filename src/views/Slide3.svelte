@@ -11,7 +11,7 @@
     display: flex;
     flex-direction: column;
     padding-top: 3rem;
-    background-image: url("img/henry-co-6-stO-K6JaY-unsplash.jpg");
+    background-image: url("img/henry-co-6-stO-K6JaY-unsplash.webp");
     background-size: contain;
     background-position: left bottom;
     background-attachment: inherit;
@@ -51,7 +51,7 @@
       <div class="gallery">
         {#each _.range(1, 13) as num}
           <img
-            src={`showcase/${num}.jpg`}
+            src={`showcase/${num}.webp`}
             alt={'show case ' + num}
             in:fly={{ y: -20, duration: 1000, delay: num * 100 + 700 }} />
         {/each}

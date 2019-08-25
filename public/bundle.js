@@ -7454,36 +7454,36 @@ var app = (function () {
     			t11 = space();
     			a2 = element("a");
     			icon2.$$.fragment.c();
-    			attr(span, "class", "svelte-1adpwnw");
-    			add_location(span, file$1, 66, 6, 1539);
+    			attr(span, "class", "svelte-1f0e1ml");
+    			add_location(span, file$1, 66, 6, 1540);
     			attr(a0, "id", "abs-contact");
     			attr(a0, "href", "tel:0847550825");
-    			attr(a0, "class", "svelte-1adpwnw");
-    			add_location(a0, file$1, 64, 4, 1443);
-    			add_location(br0, file$1, 68, 4, 1578);
+    			attr(a0, "class", "svelte-1f0e1ml");
+    			add_location(a0, file$1, 64, 4, 1444);
+    			add_location(br0, file$1, 68, 4, 1579);
     			attr(img, "src", "assets/logo.svg");
     			attr(img, "alt", "logo");
-    			add_location(img, file$1, 70, 6, 1661);
-    			attr(div0, "class", "logo svelte-1adpwnw");
-    			add_location(div0, file$1, 69, 4, 1589);
-    			attr(h1, "class", "svelte-1adpwnw");
-    			add_location(h1, file$1, 73, 6, 1791);
-    			add_location(p, file$1, 74, 6, 1821);
-    			add_location(br1, file$1, 75, 6, 1865);
-    			add_location(br2, file$1, 76, 6, 1878);
+    			add_location(img, file$1, 70, 6, 1662);
+    			attr(div0, "class", "logo svelte-1f0e1ml");
+    			add_location(div0, file$1, 69, 4, 1590);
+    			attr(h1, "class", "svelte-1f0e1ml");
+    			add_location(h1, file$1, 73, 6, 1792);
+    			add_location(p, file$1, 74, 6, 1822);
+    			add_location(br1, file$1, 75, 6, 1866);
+    			add_location(br2, file$1, 76, 6, 1879);
     			attr(div1, "class", "body");
-    			add_location(div1, file$1, 72, 4, 1717);
+    			add_location(div1, file$1, 72, 4, 1718);
     			attr(a1, "href", "https://facebook.com/bankamnodchivit");
-    			attr(a1, "class", "svelte-1adpwnw");
-    			add_location(a1, file$1, 79, 6, 1976);
+    			attr(a1, "class", "svelte-1f0e1ml");
+    			add_location(a1, file$1, 79, 6, 1977);
     			attr(a2, "href", "https://facebook.com/bankamnodchivit");
-    			attr(a2, "class", "svelte-1adpwnw");
-    			add_location(a2, file$1, 82, 6, 2096);
+    			attr(a2, "class", "svelte-1f0e1ml");
+    			add_location(a2, file$1, 82, 6, 2097);
     			attr(div2, "class", "footer");
-    			add_location(div2, file$1, 78, 4, 1900);
+    			add_location(div2, file$1, 78, 4, 1901);
     			attr(div3, "id", "slide1");
-    			attr(div3, "class", "svelte-1adpwnw");
-    			add_location(div3, file$1, 63, 2, 1421);
+    			attr(div3, "class", "svelte-1f0e1ml");
+    			add_location(div3, file$1, 63, 2, 1422);
     		},
 
     		m: function mount(target, anchor) {
@@ -7696,16 +7696,16 @@ var app = (function () {
     			t2 = text("\n      รู้คุณสมบัติของบ้านที่ส่งผลกระทบกับคนอยู่อาศัยได้\n      ");
     			br1 = element("br");
     			t3 = text("\n      ผมก็ควรต้องรู้วิธีแก้ไขชีวิตคนในบ้านให้ได้ด้วย");
-    			attr(img, "src", "img/69340853_109203763782390_221042970084769792_o.jpg");
+    			attr(img, "src", "img/69340853_109203763782390_221042970084769792_o.webp");
     			attr(img, "alt", "people");
     			attr(img, "class", "svelte-fc2xgp");
     			add_location(img, file$2, 45, 6, 1103);
     			attr(div0, "class", "profile svelte-fc2xgp");
     			add_location(div0, file$2, 44, 4, 1028);
-    			add_location(br0, file$2, 51, 6, 1341);
-    			add_location(br1, file$2, 53, 6, 1410);
+    			add_location(br0, file$2, 51, 6, 1342);
+    			add_location(br1, file$2, 53, 6, 1411);
     			attr(div1, "class", "quote svelte-fc2xgp");
-    			add_location(div1, file$2, 49, 4, 1215);
+    			add_location(div1, file$2, 49, 4, 1216);
     			attr(section, "id", "slide2");
     			attr(section, "class", "svelte-fc2xgp");
     			add_location(section, file$2, 43, 2, 1002);
@@ -24968,20 +24968,20 @@ var app = (function () {
     			br1 = element("br");
     			t4 = space();
     			br2 = element("br");
-    			attr(h1, "class", "svelte-7dzyt");
-    			add_location(h1, file$3, 37, 8, 1113);
+    			attr(h1, "class", "svelte-1hzud66");
+    			add_location(h1, file$3, 37, 8, 1114);
     			attr(div0, "class", "title");
-    			add_location(div0, file$3, 36, 6, 1037);
-    			add_location(br0, file$3, 39, 6, 1156);
-    			attr(div1, "class", "gallery svelte-7dzyt");
-    			add_location(div1, file$3, 40, 6, 1169);
-    			add_location(br1, file$3, 48, 6, 1431);
-    			add_location(br2, file$3, 49, 6, 1444);
-    			attr(div2, "class", "container svelte-7dzyt");
-    			add_location(div2, file$3, 35, 4, 1007);
+    			add_location(div0, file$3, 36, 6, 1038);
+    			add_location(br0, file$3, 39, 6, 1157);
+    			attr(div1, "class", "gallery svelte-1hzud66");
+    			add_location(div1, file$3, 40, 6, 1170);
+    			add_location(br1, file$3, 48, 6, 1433);
+    			add_location(br2, file$3, 49, 6, 1446);
+    			attr(div2, "class", "container svelte-1hzud66");
+    			add_location(div2, file$3, 35, 4, 1008);
     			attr(section, "id", "slide3");
-    			attr(section, "class", "svelte-7dzyt");
-    			add_location(section, file$3, 34, 2, 981);
+    			attr(section, "class", "svelte-1hzud66");
+    			add_location(section, file$3, 34, 2, 982);
     		},
 
     		m: function mount(target, anchor) {
@@ -25059,10 +25059,10 @@ var app = (function () {
     	return {
     		c: function create() {
     			img = element("img");
-    			attr(img, "src", img_src_value = `showcase/${ctx.num}.jpg`);
+    			attr(img, "src", img_src_value = `showcase/${ctx.num}.webp`);
     			attr(img, "alt", img_alt_value = 'show case ' + ctx.num);
-    			attr(img, "class", "svelte-7dzyt");
-    			add_location(img, file$3, 42, 10, 1239);
+    			attr(img, "class", "svelte-1hzud66");
+    			add_location(img, file$3, 42, 10, 1240);
     		},
 
     		m: function mount(target, anchor) {
