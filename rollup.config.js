@@ -6,6 +6,8 @@ import { terser } from 'rollup-plugin-terser';
 import autoPreprocess from 'svelte-preprocess';
 import { scss, globalStyle } from 'svelte-preprocess';
 import css from 'rollup-plugin-css-porter';
+import json from 'rollup-plugin-json';
+import md from 'rollup-plugin-md';
 const production = !process.env.ROLLUP_WATCH;
 
 export default {
@@ -17,11 +19,14 @@ export default {
     file: 'public/bundle.js'
   },
   plugins: [
+    json(),
+    md(),
     css({
       raw: 'public/module.css',
       minified: 'public/module.min.css'
     }),
     svelte({
+      extensions: ['.svelte', '.html'],
       // enable run-time checks when not in production
       dev: !production,
       // include: ['main.scss'],

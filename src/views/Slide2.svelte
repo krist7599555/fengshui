@@ -11,6 +11,9 @@
     justify-items: center;
     max-width: 950px;
     margin: auto auto;
+    height: 100vh;
+    height: -webkit-fill-available;
+
     > .profile {
       margin-right: 3rem;
       flex: 1;
@@ -24,19 +27,21 @@
         height: $size;
       }
     }
+
     > .quote {
-      flex: 2;
+      flex: 1;
       font-size: 1.2rem;
       position: relative;
       margin: auto auto;
       max-width: 400px;
-
+      // padding-right: 2rem;
+      text-align: center;
       &::before,
       &::after {
         content: '"';
-        color: #36363633;
+        color: #36363626;
         line-height: 0;
-        font-size: 25rem;
+        font-size: 20rem;
         position: absolute;
       }
       &::before {
@@ -47,6 +52,47 @@
         bottom: -9rem;
         right: -5rem;
       }
+    }
+
+    // @media screen and (max-width: 905px) {
+    //   > .profile {
+    //     flex: unset;
+    //   }
+    // }
+    @media screen and (max-width: 897px) {
+      flex-direction: column;
+      > .profile {
+        flex: unset;
+        margin-bottom: 3rem;
+      }
+      > .quote {
+        flex: unset;
+        padding: 0;
+        margin-top: 3rem;
+        // margin-left: 1rem;
+        // margin-right: 1rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+        @media screen and (max-width: 450px) {
+          max-width: 300px;
+          margin-top: 0rem;
+        }
+        &::before,
+        &::after {
+          content: "";
+        }
+      }
+
+      //   > .profile {
+      //     flex: unset;
+      //     margin: 1rem auto;
+      //     margin-top: 10vh;
+      //     // margin-bottom: 0;
+      //   }
+      //   > .quote {
+      //     margin: 1rem auto;
+      //     margin-top: 5rem;
+      //   }
     }
   }
 </style>
@@ -59,11 +105,11 @@
         alt="people" />
     </div>
     <div class="quote" in:fly={{ y: -20, duration: 2400, delay: 700 }}>
-      เมื่อผมสามารถรู้ความเป็นไปของชีวิตคนในบ้านได้
+      ความยากดีมีจน ความสุขความทุกข์
       <br />
-      รู้คุณสมบัติของบ้านที่ส่งผลกระทบกับคนอยู่อาศัยได้
+      มีผลกำเนิดจากบ้านที่เราอยู่
       <br />
-      ผมก็ควรต้องรู้วิธีแก้ไขชีวิตคนในบ้านให้ได้ด้วย
+      มีนคือความลับที่หลายคนไม่เคยรู้ และคิดไม่ถึง
     </div>
   </section>
 {/if}

@@ -31,6 +31,34 @@ var app = (function () {
     function safe_not_equal(a, b) {
         return a != a ? b == b : a !== b || ((a && typeof a === 'object') || typeof a === 'function');
     }
+    function validate_store(store, name) {
+        if (!store || typeof store.subscribe !== 'function') {
+            throw new Error(`'${name}' is not a store with a 'subscribe' method`);
+        }
+    }
+    function subscribe(store, callback) {
+        const unsub = store.subscribe(callback);
+        return unsub.unsubscribe ? () => unsub.unsubscribe() : unsub;
+    }
+    function component_subscribe(component, store, callback) {
+        component.$$.on_destroy.push(subscribe(store, callback));
+    }
+    function create_slot(definition, ctx, fn) {
+        if (definition) {
+            const slot_ctx = get_slot_context(definition, ctx, fn);
+            return definition[0](slot_ctx);
+        }
+    }
+    function get_slot_context(definition, ctx, fn) {
+        return definition[1]
+            ? assign({}, assign(ctx.$$scope.ctx, definition[1](fn ? fn(ctx) : {})))
+            : ctx.$$scope.ctx;
+    }
+    function get_slot_changes(definition, ctx, changed, fn) {
+        return definition[1]
+            ? assign({}, assign(ctx.$$scope.changed || {}, definition[1](fn ? fn(changed) : {})))
+            : ctx.$$scope.changed || {};
+    }
     function exclude_internal_props(props) {
         const result = {};
         for (const k in props)
@@ -86,12 +114,6 @@ var app = (function () {
     function detach(node) {
         node.parentNode.removeChild(node);
     }
-    function destroy_each(iterations, detaching) {
-        for (let i = 0; i < iterations.length; i += 1) {
-            if (iterations[i])
-                iterations[i].d(detaching);
-        }
-    }
     function element(name) {
         return document.createElement(name);
     }
@@ -107,6 +129,17 @@ var app = (function () {
     function empty() {
         return text('');
     }
+    function listen(node, event, handler, options) {
+        node.addEventListener(event, handler, options);
+        return () => node.removeEventListener(event, handler, options);
+    }
+    function prevent_default(fn) {
+        return function (event) {
+            event.preventDefault();
+            // @ts-ignore
+            return fn.call(this, event);
+        };
+    }
     function attr(node, attribute, value) {
         if (value == null)
             node.removeAttribute(attribute);
@@ -116,10 +149,46 @@ var app = (function () {
     function children(element) {
         return Array.from(element.childNodes);
     }
+    function set_data(text, data) {
+        data = '' + data;
+        if (text.data !== data)
+            text.data = data;
+    }
+    function set_style(node, key, value, important) {
+        node.style.setProperty(key, value, important ? 'important' : '');
+    }
+    function toggle_class(element, name, toggle) {
+        element.classList[toggle ? 'add' : 'remove'](name);
+    }
     function custom_event(type, detail) {
         const e = document.createEvent('CustomEvent');
         e.initCustomEvent(type, false, false, detail);
         return e;
+    }
+    class HtmlTag {
+        constructor(html, anchor = null) {
+            this.e = element('div');
+            this.a = anchor;
+            this.u(html);
+        }
+        m(target, anchor = null) {
+            for (let i = 0; i < this.n.length; i += 1) {
+                insert(target, this.n[i], anchor);
+            }
+            this.t = target;
+        }
+        u(html) {
+            this.e.innerHTML = html;
+            this.n = Array.from(this.e.childNodes);
+        }
+        p(html) {
+            this.d();
+            this.u(html);
+            this.m(this.t, this.a);
+        }
+        d() {
+            this.n.forEach(detach);
+        }
     }
 
     let stylesheet;
@@ -189,6 +258,29 @@ var app = (function () {
     }
     function onMount(fn) {
         get_current_component().$$.on_mount.push(fn);
+    }
+    function onDestroy(fn) {
+        get_current_component().$$.on_destroy.push(fn);
+    }
+    function createEventDispatcher() {
+        const component = current_component;
+        return (type, detail) => {
+            const callbacks = component.$$.callbacks[type];
+            if (callbacks) {
+                // TODO are there situations where events could be dispatched
+                // in a server (non-DOM) environment?
+                const event = custom_event(type, detail);
+                callbacks.slice().forEach(fn => {
+                    fn.call(component, event);
+                });
+            }
+        };
+    }
+    function setContext(key, context) {
+        get_current_component().$$.context.set(key, context);
+    }
+    function getContext(key) {
+        return get_current_component().$$.context.get(key);
     }
 
     const dirty_components = [];
@@ -366,6 +458,283 @@ var app = (function () {
             }
         };
     }
+    function create_out_transition(node, fn, params) {
+        let config = fn(node, params);
+        let running = true;
+        let animation_name;
+        const group = outros;
+        group.r += 1;
+        function go() {
+            const { delay = 0, duration = 300, easing = identity, tick = noop, css } = config || null_transition;
+            if (css)
+                animation_name = create_rule(node, 1, 0, duration, delay, easing, css);
+            const start_time = now() + delay;
+            const end_time = start_time + duration;
+            add_render_callback(() => dispatch(node, false, 'start'));
+            loop(now => {
+                if (running) {
+                    if (now >= end_time) {
+                        tick(0, 1);
+                        dispatch(node, false, 'end');
+                        if (!--group.r) {
+                            // this will result in `end()` being called,
+                            // so we don't need to clean up here
+                            run_all(group.c);
+                        }
+                        return false;
+                    }
+                    if (now >= start_time) {
+                        const t = easing((now - start_time) / duration);
+                        tick(1 - t, t);
+                    }
+                }
+                return running;
+            });
+        }
+        if (is_function(config)) {
+            wait().then(() => {
+                // @ts-ignore
+                config = config();
+                go();
+            });
+        }
+        else {
+            go();
+        }
+        return {
+            end(reset) {
+                if (reset && config.tick) {
+                    config.tick(1, 0);
+                }
+                if (running) {
+                    if (animation_name)
+                        delete_rule(node, animation_name);
+                    running = false;
+                }
+            }
+        };
+    }
+    function create_bidirectional_transition(node, fn, params, intro) {
+        let config = fn(node, params);
+        let t = intro ? 0 : 1;
+        let running_program = null;
+        let pending_program = null;
+        let animation_name = null;
+        function clear_animation() {
+            if (animation_name)
+                delete_rule(node, animation_name);
+        }
+        function init(program, duration) {
+            const d = program.b - t;
+            duration *= Math.abs(d);
+            return {
+                a: t,
+                b: program.b,
+                d,
+                duration,
+                start: program.start,
+                end: program.start + duration,
+                group: program.group
+            };
+        }
+        function go(b) {
+            const { delay = 0, duration = 300, easing = identity, tick = noop, css } = config || null_transition;
+            const program = {
+                start: now() + delay,
+                b
+            };
+            if (!b) {
+                // @ts-ignore todo: improve typings
+                program.group = outros;
+                outros.r += 1;
+            }
+            if (running_program) {
+                pending_program = program;
+            }
+            else {
+                // if this is an intro, and there's a delay, we need to do
+                // an initial tick and/or apply CSS animation immediately
+                if (css) {
+                    clear_animation();
+                    animation_name = create_rule(node, t, b, duration, delay, easing, css);
+                }
+                if (b)
+                    tick(0, 1);
+                running_program = init(program, duration);
+                add_render_callback(() => dispatch(node, b, 'start'));
+                loop(now => {
+                    if (pending_program && now > pending_program.start) {
+                        running_program = init(pending_program, duration);
+                        pending_program = null;
+                        dispatch(node, running_program.b, 'start');
+                        if (css) {
+                            clear_animation();
+                            animation_name = create_rule(node, t, running_program.b, running_program.duration, 0, easing, config.css);
+                        }
+                    }
+                    if (running_program) {
+                        if (now >= running_program.end) {
+                            tick(t = running_program.b, 1 - t);
+                            dispatch(node, running_program.b, 'end');
+                            if (!pending_program) {
+                                // we're done
+                                if (running_program.b) {
+                                    // intro — we can tidy up immediately
+                                    clear_animation();
+                                }
+                                else {
+                                    // outro — needs to be coordinated
+                                    if (!--running_program.group.r)
+                                        run_all(running_program.group.c);
+                                }
+                            }
+                            running_program = null;
+                        }
+                        else if (now >= running_program.start) {
+                            const p = now - running_program.start;
+                            t = running_program.a + running_program.d * easing(p / running_program.duration);
+                            tick(t, 1 - t);
+                        }
+                    }
+                    return !!(running_program || pending_program);
+                });
+            }
+        }
+        return {
+            run(b) {
+                if (is_function(config)) {
+                    wait().then(() => {
+                        // @ts-ignore
+                        config = config();
+                        go(b);
+                    });
+                }
+                else {
+                    go(b);
+                }
+            },
+            end() {
+                clear_animation();
+                running_program = pending_program = null;
+            }
+        };
+    }
+
+    const globals = (typeof window !== 'undefined' ? window : global);
+
+    function destroy_block(block, lookup) {
+        block.d(1);
+        lookup.delete(block.key);
+    }
+    function update_keyed_each(old_blocks, changed, get_key, dynamic, ctx, list, lookup, node, destroy, create_each_block, next, get_context) {
+        let o = old_blocks.length;
+        let n = list.length;
+        let i = o;
+        const old_indexes = {};
+        while (i--)
+            old_indexes[old_blocks[i].key] = i;
+        const new_blocks = [];
+        const new_lookup = new Map();
+        const deltas = new Map();
+        i = n;
+        while (i--) {
+            const child_ctx = get_context(ctx, list, i);
+            const key = get_key(child_ctx);
+            let block = lookup.get(key);
+            if (!block) {
+                block = create_each_block(key, child_ctx);
+                block.c();
+            }
+            else if (dynamic) {
+                block.p(changed, child_ctx);
+            }
+            new_lookup.set(key, new_blocks[i] = block);
+            if (key in old_indexes)
+                deltas.set(key, Math.abs(i - old_indexes[key]));
+        }
+        const will_move = new Set();
+        const did_move = new Set();
+        function insert(block) {
+            transition_in(block, 1);
+            block.m(node, next);
+            lookup.set(block.key, block);
+            next = block.first;
+            n--;
+        }
+        while (o && n) {
+            const new_block = new_blocks[n - 1];
+            const old_block = old_blocks[o - 1];
+            const new_key = new_block.key;
+            const old_key = old_block.key;
+            if (new_block === old_block) {
+                // do nothing
+                next = new_block.first;
+                o--;
+                n--;
+            }
+            else if (!new_lookup.has(old_key)) {
+                // remove old block
+                destroy(old_block, lookup);
+                o--;
+            }
+            else if (!lookup.has(new_key) || will_move.has(new_key)) {
+                insert(new_block);
+            }
+            else if (did_move.has(old_key)) {
+                o--;
+            }
+            else if (deltas.get(new_key) > deltas.get(old_key)) {
+                did_move.add(new_key);
+                insert(new_block);
+            }
+            else {
+                will_move.add(old_key);
+                o--;
+            }
+        }
+        while (o--) {
+            const old_block = old_blocks[o];
+            if (!new_lookup.has(old_block.key))
+                destroy(old_block, lookup);
+        }
+        while (n)
+            insert(new_blocks[n - 1]);
+        return new_blocks;
+    }
+
+    function get_spread_update(levels, updates) {
+        const update = {};
+        const to_null_out = {};
+        const accounted_for = { $$scope: 1 };
+        let i = levels.length;
+        while (i--) {
+            const o = levels[i];
+            const n = updates[i];
+            if (n) {
+                for (const key in o) {
+                    if (!(key in n))
+                        to_null_out[key] = 1;
+                }
+                for (const key in n) {
+                    if (!accounted_for[key]) {
+                        update[key] = n[key];
+                        accounted_for[key] = 1;
+                    }
+                }
+                levels[i] = n;
+            }
+            else {
+                for (const key in o) {
+                    accounted_for[key] = 1;
+                }
+            }
+        }
+        for (const key in to_null_out) {
+            if (!(key in update))
+                update[key] = undefined;
+        }
+        return update;
+    }
 
     function bind(component, name, callback) {
         if (component.$$.props.indexOf(name) === -1)
@@ -499,6 +868,1128 @@ var app = (function () {
 
     function createCommonjsModule(fn, module) {
     	return module = { exports: {} }, fn(module, module.exports), module.exports;
+    }
+
+    var index_umd = createCommonjsModule(function (module, exports) {
+    (function (global, factory) {
+       module.exports = factory() ;
+    }(commonjsGlobal, function () {
+      var defaultExport = /*@__PURE__*/(function (Error) {
+        function defaultExport(route, path) {
+          var message = "Unreachable '" + route + "', segment '" + path + "' is not defined";
+          Error.call(this, message);
+          this.message = message;
+        }
+
+        if ( Error ) defaultExport.__proto__ = Error;
+        defaultExport.prototype = Object.create( Error && Error.prototype );
+        defaultExport.prototype.constructor = defaultExport;
+
+        return defaultExport;
+      }(Error));
+
+      function buildMatcher(path, parent) {
+        var regex;
+
+        var _isSplat;
+
+        var _priority = -100;
+
+        var keys = [];
+        regex = path.replace(/[-$.]/g, '\\$&').replace(/\(/g, '(?:').replace(/\)/g, ')?').replace(/([:*]\w+)(?:<([^<>]+?)>)?/g, function (_, key, expr) {
+          keys.push(key.substr(1));
+
+          if (key.charAt() === ':') {
+            _priority += 100;
+            return ("((?!#)" + (expr || '[^/]+?') + ")");
+          }
+
+          _isSplat = true;
+          _priority += 500;
+          return ("((?!#)" + (expr || '.+?') + ")");
+        });
+
+        try {
+          regex = new RegExp(("^" + regex + "$"));
+        } catch (e) {
+          throw new TypeError(("Invalid route expression, given '" + parent + "'"));
+        }
+
+        var _hashed = path.includes('#') ? 0.5 : 1;
+
+        var _depth = path.length * _priority * _hashed;
+
+        return {
+          keys: keys,
+          regex: regex,
+          _depth: _depth,
+          _isSplat: _isSplat
+        };
+      }
+      var PathMatcher = function PathMatcher(path, parent) {
+        var ref = buildMatcher(path, parent);
+        var keys = ref.keys;
+        var regex = ref.regex;
+        var _depth = ref._depth;
+        var _isSplat = ref._isSplat;
+        return {
+          _isSplat: _isSplat,
+          _depth: _depth,
+          match: function (value) {
+            var matches = value.match(regex);
+
+            if (matches) {
+              return keys.reduce(function (prev, cur, i) {
+                prev[cur] = typeof matches[i + 1] === 'string' ? decodeURIComponent(matches[i + 1]) : null;
+                return prev;
+              }, {});
+            }
+          }
+        };
+      };
+
+      PathMatcher.push = function push (key, prev, leaf, parent) {
+        var root = prev[key] || (prev[key] = {});
+
+        if (!root.pattern) {
+          root.pattern = new PathMatcher(key, parent);
+          root.route = leaf || '/';
+        }
+
+        prev.keys = prev.keys || [];
+
+        if (!prev.keys.includes(key)) {
+          prev.keys.push(key);
+          PathMatcher.sort(prev);
+        }
+
+        return root;
+      };
+
+      PathMatcher.sort = function sort (root) {
+        root.keys.sort(function (a, b) {
+          return root[a].pattern._depth - root[b].pattern._depth;
+        });
+      };
+
+      function merge(path, parent) {
+        return ("" + (parent && parent !== '/' ? parent : '') + (path || ''));
+      }
+      function walk(path, cb) {
+        var matches = path.match(/<[^<>]*\/[^<>]*>/);
+
+        if (matches) {
+          throw new TypeError(("RegExp cannot contain slashes, given '" + matches + "'"));
+        }
+
+        var parts = path !== '/' ? path.split('/') : [''];
+        var root = [];
+        parts.some(function (x, i) {
+          var parent = root.concat(x).join('/') || null;
+          var segment = parts.slice(i + 1).join('/') || null;
+          var retval = cb(("/" + x), parent, segment ? ((x ? ("/" + x) : '') + "/" + segment) : null);
+          root.push(x);
+          return retval;
+        });
+      }
+      function reduce(key, root, _seen) {
+        var params = {};
+        var out = [];
+        var splat;
+        walk(key, function (x, leaf, extra) {
+          var found;
+
+          if (!root.keys) {
+            throw new defaultExport(key, x);
+          }
+
+          root.keys.some(function (k) {
+            if (_seen.includes(k)) { return false; }
+            var ref = root[k].pattern;
+            var match = ref.match;
+            var _isSplat = ref._isSplat;
+            var matches = match(_isSplat ? extra || x : x);
+
+            if (matches) {
+              Object.assign(params, matches);
+
+              if (root[k].route) {
+                out.push(Object.assign({}, root[k].info, {
+                  matches: x === leaf || _isSplat || !extra,
+                  params: Object.assign({}, params),
+                  route: root[k].route,
+                  path: _isSplat ? extra : leaf || x
+                }));
+              }
+
+              if (extra === null && !root[k].keys) {
+                return true;
+              }
+
+              if (k !== '/') { _seen.push(k); }
+              splat = _isSplat;
+              root = root[k];
+              found = true;
+              return true;
+            }
+
+            return false;
+          });
+
+          if (!(found || root.keys.some(function (k) { return root[k].pattern.match(x); }))) {
+            throw new defaultExport(key, x);
+          }
+
+          return splat || !found;
+        });
+        return out;
+      }
+      function find(path, routes, retries) {
+        var get = reduce.bind(null, path, routes);
+        var set = [];
+
+        while (retries > 0) {
+          retries -= 1;
+
+          try {
+            return get(set);
+          } catch (e) {
+            if (retries > 0) {
+              return get(set);
+            }
+
+            throw e;
+          }
+        }
+      }
+      function add(path, routes, parent, routeInfo) {
+        var fullpath = merge(path, parent);
+        var root = routes;
+        walk(fullpath, function (x, leaf) {
+          root = PathMatcher.push(x, root, leaf, fullpath);
+
+          if (x !== '/') {
+            root.info = root.info || Object.assign({}, routeInfo);
+          }
+        });
+        root.info = root.info || Object.assign({}, routeInfo);
+        return fullpath;
+      }
+      function rm(path, routes, parent) {
+        var fullpath = merge(path, parent);
+        var root = routes;
+        var leaf = null;
+        var key = null;
+        walk(fullpath, function (x) {
+          if (!root) {
+            leaf = null;
+            return true;
+          }
+
+          key = x;
+          leaf = x === '/' ? routes['/'] : root;
+
+          if (!leaf.keys) {
+            throw new defaultExport(path, x);
+          }
+
+          root = root[x];
+        });
+
+        if (!(leaf && key)) {
+          throw new defaultExport(path, key);
+        }
+
+        delete leaf[key];
+
+        if (key === '/') {
+          delete leaf.info;
+          delete leaf.route;
+        }
+
+        var offset = leaf.keys.indexOf(key);
+
+        if (offset !== -1) {
+          leaf.keys.splice(leaf.keys.indexOf(key), 1);
+          PathMatcher.sort(leaf);
+        }
+      }
+
+      var Router = function Router() {
+        var routes = {};
+        var stack = [];
+        return {
+          mount: function (path, cb) {
+            if (path !== '/') {
+              stack.push(path);
+            }
+
+            cb();
+            stack.pop();
+          },
+          find: function (path, retries) { return find(path, routes, retries === true ? 2 : retries || 1); },
+          add: function (path, routeInfo) { return add(path, routes, stack.join(''), routeInfo); },
+          rm: function (path) { return rm(path, routes, stack.join('')); }
+        };
+      };
+
+      return Router;
+
+    }));
+    });
+
+    const CTX_ROUTER = {};
+
+    function navigateTo(path) {
+      // If path empty or no string, throws error
+      if (!path || typeof path !== 'string') {
+        throw Error(`svero expects navigateTo() to have a string parameter. The parameter provided was: ${path} of type ${typeof path} instead.`);
+      }
+
+      if (path[0] !== '/' && path[0] !== '#') {
+        throw Error(`svero expects navigateTo() param to start with slash or hash, e.g. "/${path}" or "#${path}" instead of "${path}".`);
+      }
+
+      // If no History API support, fallbacks to URL redirect
+      if (!history.pushState || !window.dispatchEvent) {
+        window.location.href = path;
+        return;
+      }
+
+      // If has History API support, uses it
+      history.pushState({}, '', path);
+      window.dispatchEvent(new Event('popstate'));
+    }
+
+    const subscriber_queue = [];
+    /**
+     * Creates a `Readable` store that allows reading by subscription.
+     * @param value initial value
+     * @param {StartStopNotifier}start start and stop notifications for subscriptions
+     */
+    function readable(value, start) {
+        return {
+            subscribe: writable(value, start).subscribe,
+        };
+    }
+    /**
+     * Create a `Writable` store that allows both updating and reading by subscription.
+     * @param {*=}value initial value
+     * @param {StartStopNotifier=}start start and stop notifications for subscriptions
+     */
+    function writable(value, start = noop) {
+        let stop;
+        const subscribers = [];
+        function set(new_value) {
+            if (safe_not_equal(value, new_value)) {
+                value = new_value;
+                if (stop) { // store is ready
+                    const run_queue = !subscriber_queue.length;
+                    for (let i = 0; i < subscribers.length; i += 1) {
+                        const s = subscribers[i];
+                        s[1]();
+                        subscriber_queue.push(s, value);
+                    }
+                    if (run_queue) {
+                        for (let i = 0; i < subscriber_queue.length; i += 2) {
+                            subscriber_queue[i][0](subscriber_queue[i + 1]);
+                        }
+                        subscriber_queue.length = 0;
+                    }
+                }
+            }
+        }
+        function update(fn) {
+            set(fn(value));
+        }
+        function subscribe(run, invalidate = noop) {
+            const subscriber = [run, invalidate];
+            subscribers.push(subscriber);
+            if (subscribers.length === 1) {
+                stop = start(set) || noop;
+            }
+            run(value);
+            return () => {
+                const index = subscribers.indexOf(subscriber);
+                if (index !== -1) {
+                    subscribers.splice(index, 1);
+                }
+                if (subscribers.length === 0) {
+                    stop();
+                    stop = null;
+                }
+            };
+        }
+        return { set, update, subscribe };
+    }
+
+    /* node_modules/svero/src/Router.svelte generated by Svelte v3.9.1 */
+    const { Object: Object_1 } = globals;
+
+    const file = "node_modules/svero/src/Router.svelte";
+
+    // (165:0) {#if failure && !nofallback}
+    function create_if_block(ctx) {
+    	var fieldset, legend, t0, t1, t2, pre, t3;
+
+    	return {
+    		c: function create() {
+    			fieldset = element("fieldset");
+    			legend = element("legend");
+    			t0 = text("Router failure: ");
+    			t1 = text(ctx.path);
+    			t2 = space();
+    			pre = element("pre");
+    			t3 = text(ctx.failure);
+    			add_location(legend, file, 166, 4, 3810);
+    			add_location(pre, file, 167, 4, 3854);
+    			add_location(fieldset, file, 165, 2, 3795);
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, fieldset, anchor);
+    			append(fieldset, legend);
+    			append(legend, t0);
+    			append(legend, t1);
+    			append(fieldset, t2);
+    			append(fieldset, pre);
+    			append(pre, t3);
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (changed.path) {
+    				set_data(t1, ctx.path);
+    			}
+
+    			if (changed.failure) {
+    				set_data(t3, ctx.failure);
+    			}
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(fieldset);
+    			}
+    		}
+    	};
+    }
+
+    function create_fragment(ctx) {
+    	var t_1, current, dispose;
+
+    	var if_block = (ctx.failure && !ctx.nofallback) && create_if_block(ctx);
+
+    	const default_slot_template = ctx.$$slots.default;
+    	const default_slot = create_slot(default_slot_template, ctx, null);
+
+    	return {
+    		c: function create() {
+    			if (if_block) if_block.c();
+    			t_1 = space();
+
+    			if (default_slot) default_slot.c();
+
+    			dispose = listen(window, "popstate", ctx.handlePopState);
+    		},
+
+    		l: function claim(nodes) {
+    			if (default_slot) default_slot.l(nodes);
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			if (if_block) if_block.m(target, anchor);
+    			insert(target, t_1, anchor);
+
+    			if (default_slot) {
+    				default_slot.m(target, anchor);
+    			}
+
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (ctx.failure && !ctx.nofallback) {
+    				if (if_block) {
+    					if_block.p(changed, ctx);
+    				} else {
+    					if_block = create_if_block(ctx);
+    					if_block.c();
+    					if_block.m(t_1.parentNode, t_1);
+    				}
+    			} else if (if_block) {
+    				if_block.d(1);
+    				if_block = null;
+    			}
+
+    			if (default_slot && default_slot.p && changed.$$scope) {
+    				default_slot.p(
+    					get_slot_changes(default_slot_template, ctx, changed, null),
+    					get_slot_context(default_slot_template, ctx, null)
+    				);
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(default_slot, local);
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(default_slot, local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (if_block) if_block.d(detaching);
+
+    			if (detaching) {
+    				detach(t_1);
+    			}
+
+    			if (default_slot) default_slot.d(detaching);
+    			dispose();
+    		}
+    	};
+    }
+
+
+
+    const router = new index_umd();
+
+    function cleanPath(route) {
+      return route.replace(/\?[^#]*/, '').replace(/(?!^)\/#/, '#').replace('/#', '#').replace(/\/$/, '');
+    }
+
+    function fixPath(route) {
+      if (route === '/#*' || route === '#*') return '#*_';
+      if (route === '/*' || route === '*') return '/*_';
+      return route;
+    }
+
+    function instance($$self, $$props, $$invalidate) {
+    	let $routeInfo, $basePath;
+
+    	
+
+      let t;
+      let failure;
+      let fallback;
+
+      let { path = '/', nofallback = null } = $$props;
+
+      const routeInfo = writable({}); validate_store(routeInfo, 'routeInfo'); component_subscribe($$self, routeInfo, $$value => { $routeInfo = $$value; $$invalidate('$routeInfo', $routeInfo); });
+      const routerContext = getContext(CTX_ROUTER);
+      const basePath = routerContext ? routerContext.basePath : writable(path); validate_store(basePath, 'basePath'); component_subscribe($$self, basePath, $$value => { $basePath = $$value; $$invalidate('$basePath', $basePath); });
+
+      function handleRoutes(map) {
+        const params = map.reduce((prev, cur) => {
+          prev[cur.key] = Object.assign(prev[cur.key] || {}, cur.params);
+          return prev;
+        }, {});
+
+        let skip;
+        let routes = {};
+
+        map.some(x => {
+          if (typeof x.condition === 'boolean' || typeof x.condition === 'function') {
+            const ok = typeof x.condition === 'function' ? x.condition() : x.condition;
+
+            if (ok === false && x.redirect) {
+              navigateTo(x.redirect);
+              skip = true;
+              return true;
+            }
+          }
+
+          if (x.key && !routes[x.key]) {
+            if (x.exact && !x.matches) return false;
+            routes[x.key] = { ...x, params: params[x.key] };
+          }
+
+          return false;
+        });
+
+        if (!skip) {
+          $routeInfo = routes; routeInfo.set($routeInfo);
+        }
+      }
+
+      function doFallback(e, path) {
+        $routeInfo[fallback] = { failure: e, params: { _: path.substr(1) || undefined } }; routeInfo.set($routeInfo);
+      }
+
+      function resolveRoutes(path) {
+        const segments = path.split('#')[0].split('/');
+        const prefix = [];
+        const map = [];
+
+        segments.forEach(key => {
+          const sub = prefix.concat(`/${key}`).join('');
+
+          if (key) prefix.push(`/${key}`);
+
+          try {
+            const next = router.find(sub);
+
+            handleRoutes(next);
+            map.push(...next);
+          } catch (e_) {
+            doFallback(e_, path);
+          }
+        });
+
+        return map;
+      }
+
+      function handlePopState() {
+        const fullpath = cleanPath(`/${location.href.split('/').slice(3).join('/')}`);
+
+        try {
+          const found = resolveRoutes(fullpath);
+
+          if (fullpath.includes('#')) {
+            const next = router.find(fullpath);
+            const keys = {};
+
+            // override previous routes to avoid non-exact matches
+            handleRoutes(found.concat(next).reduce((prev, cur) => {
+              if (typeof keys[cur.key] === 'undefined') {
+                keys[cur.key] = prev.length;
+              }
+
+              prev[keys[cur.key]] = cur;
+
+              return prev;
+            }, []));
+          }
+        } catch (e) {
+          if (!fallback) {
+            $$invalidate('failure', failure = e);
+            return;
+          }
+
+          doFallback(e, fullpath);
+        }
+      }
+
+      function _handlePopState() {
+        clearTimeout(t);
+        t = setTimeout(handlePopState, 100);
+      }
+
+      function assignRoute(key, route, detail) {
+        key = key || Math.random().toString(36).substr(2);
+
+        const fixedRoot = $basePath !== path && $basePath !== '/'
+          ? `${$basePath}${path}`
+          : path;
+
+        const handler = { key, ...detail };
+
+        let fullpath;
+
+        router.mount(fixedRoot, () => {
+          fullpath = router.add(fixPath(route), handler);
+          fallback = (handler.fallback && key) || fallback;
+        });
+
+        _handlePopState();
+
+        return [key, fullpath];
+      }
+
+      function unassignRoute(route) {
+        router.rm(fixPath(route));
+        _handlePopState();
+      }
+
+      setContext(CTX_ROUTER, {
+        basePath,
+        routeInfo,
+        assignRoute,
+        unassignRoute,
+      });
+
+    	const writable_props = ['path', 'nofallback'];
+    	Object_1.keys($$props).forEach(key => {
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<Router> was created with unknown prop '${key}'`);
+    	});
+
+    	let { $$slots = {}, $$scope } = $$props;
+
+    	$$self.$set = $$props => {
+    		if ('path' in $$props) $$invalidate('path', path = $$props.path);
+    		if ('nofallback' in $$props) $$invalidate('nofallback', nofallback = $$props.nofallback);
+    		if ('$$scope' in $$props) $$invalidate('$$scope', $$scope = $$props.$$scope);
+    	};
+
+    	return {
+    		failure,
+    		path,
+    		nofallback,
+    		routeInfo,
+    		basePath,
+    		handlePopState,
+    		$$slots,
+    		$$scope
+    	};
+    }
+
+    class Router_1 extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance, create_fragment, safe_not_equal, ["path", "nofallback"]);
+    	}
+
+    	get path() {
+    		throw new Error("<Router>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set path(value) {
+    		throw new Error("<Router>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get nofallback() {
+    		throw new Error("<Router>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set nofallback(value) {
+    		throw new Error("<Router>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
+    /* node_modules/svero/src/Route.svelte generated by Svelte v3.9.1 */
+
+    const get_default_slot_changes = ({ activeRouter, activeProps }) => ({ router: activeRouter, props: activeProps });
+    const get_default_slot_context = ({ activeRouter, activeProps }) => ({
+    	router: activeRouter,
+    	props: activeProps
+    });
+
+    // (46:0) {#if activeRouter}
+    function create_if_block$1(ctx) {
+    	var current_block_type_index, if_block, if_block_anchor, current;
+
+    	var if_block_creators = [
+    		create_if_block_1,
+    		create_else_block
+    	];
+
+    	var if_blocks = [];
+
+    	function select_block_type(changed, ctx) {
+    		if (ctx.component) return 0;
+    		return 1;
+    	}
+
+    	current_block_type_index = select_block_type(null, ctx);
+    	if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+
+    	return {
+    		c: function create() {
+    			if_block.c();
+    			if_block_anchor = empty();
+    		},
+
+    		m: function mount(target, anchor) {
+    			if_blocks[current_block_type_index].m(target, anchor);
+    			insert(target, if_block_anchor, anchor);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			var previous_block_index = current_block_type_index;
+    			current_block_type_index = select_block_type(changed, ctx);
+    			if (current_block_type_index === previous_block_index) {
+    				if_blocks[current_block_type_index].p(changed, ctx);
+    			} else {
+    				group_outros();
+    				transition_out(if_blocks[previous_block_index], 1, 1, () => {
+    					if_blocks[previous_block_index] = null;
+    				});
+    				check_outros();
+
+    				if_block = if_blocks[current_block_type_index];
+    				if (!if_block) {
+    					if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+    					if_block.c();
+    				}
+    				transition_in(if_block, 1);
+    				if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(if_block);
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if_blocks[current_block_type_index].d(detaching);
+
+    			if (detaching) {
+    				detach(if_block_anchor);
+    			}
+    		}
+    	};
+    }
+
+    // (49:2) {:else}
+    function create_else_block(ctx) {
+    	var current;
+
+    	const default_slot_template = ctx.$$slots.default;
+    	const default_slot = create_slot(default_slot_template, ctx, get_default_slot_context);
+
+    	return {
+    		c: function create() {
+    			if (default_slot) default_slot.c();
+    		},
+
+    		l: function claim(nodes) {
+    			if (default_slot) default_slot.l(nodes);
+    		},
+
+    		m: function mount(target, anchor) {
+    			if (default_slot) {
+    				default_slot.m(target, anchor);
+    			}
+
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (default_slot && default_slot.p && (changed.$$scope || changed.activeRouter || changed.activeProps)) {
+    				default_slot.p(
+    					get_slot_changes(default_slot_template, ctx, changed, get_default_slot_changes),
+    					get_slot_context(default_slot_template, ctx, get_default_slot_context)
+    				);
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(default_slot, local);
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(default_slot, local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (default_slot) default_slot.d(detaching);
+    		}
+    	};
+    }
+
+    // (47:2) {#if component}
+    function create_if_block_1(ctx) {
+    	var switch_instance_anchor, current;
+
+    	var switch_instance_spread_levels = [
+    		{ router: ctx.activeRouter },
+    		ctx.activeProps
+    	];
+
+    	var switch_value = ctx.component;
+
+    	function switch_props(ctx) {
+    		let switch_instance_props = {};
+    		for (var i = 0; i < switch_instance_spread_levels.length; i += 1) {
+    			switch_instance_props = assign(switch_instance_props, switch_instance_spread_levels[i]);
+    		}
+    		return {
+    			props: switch_instance_props,
+    			$$inline: true
+    		};
+    	}
+
+    	if (switch_value) {
+    		var switch_instance = new switch_value(switch_props());
+    	}
+
+    	return {
+    		c: function create() {
+    			if (switch_instance) switch_instance.$$.fragment.c();
+    			switch_instance_anchor = empty();
+    		},
+
+    		m: function mount(target, anchor) {
+    			if (switch_instance) {
+    				mount_component(switch_instance, target, anchor);
+    			}
+
+    			insert(target, switch_instance_anchor, anchor);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			var switch_instance_changes = (changed.activeRouter || changed.activeProps) ? get_spread_update(switch_instance_spread_levels, [
+    									(changed.activeRouter) && { router: ctx.activeRouter },
+    			(changed.activeProps) && ctx.activeProps
+    								]) : {};
+
+    			if (switch_value !== (switch_value = ctx.component)) {
+    				if (switch_instance) {
+    					group_outros();
+    					const old_component = switch_instance;
+    					transition_out(old_component.$$.fragment, 1, 0, () => {
+    						destroy_component(old_component, 1);
+    					});
+    					check_outros();
+    				}
+
+    				if (switch_value) {
+    					switch_instance = new switch_value(switch_props());
+
+    					switch_instance.$$.fragment.c();
+    					transition_in(switch_instance.$$.fragment, 1);
+    					mount_component(switch_instance, switch_instance_anchor.parentNode, switch_instance_anchor);
+    				} else {
+    					switch_instance = null;
+    				}
+    			}
+
+    			else if (switch_value) {
+    				switch_instance.$set(switch_instance_changes);
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			if (switch_instance) transition_in(switch_instance.$$.fragment, local);
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			if (switch_instance) transition_out(switch_instance.$$.fragment, local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(switch_instance_anchor);
+    			}
+
+    			if (switch_instance) destroy_component(switch_instance, detaching);
+    		}
+    	};
+    }
+
+    function create_fragment$1(ctx) {
+    	var if_block_anchor, current;
+
+    	var if_block = (ctx.activeRouter) && create_if_block$1(ctx);
+
+    	return {
+    		c: function create() {
+    			if (if_block) if_block.c();
+    			if_block_anchor = empty();
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			if (if_block) if_block.m(target, anchor);
+    			insert(target, if_block_anchor, anchor);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (ctx.activeRouter) {
+    				if (if_block) {
+    					if_block.p(changed, ctx);
+    					transition_in(if_block, 1);
+    				} else {
+    					if_block = create_if_block$1(ctx);
+    					if_block.c();
+    					transition_in(if_block, 1);
+    					if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    				}
+    			} else if (if_block) {
+    				group_outros();
+    				transition_out(if_block, 1, 1, () => {
+    					if_block = null;
+    				});
+    				check_outros();
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(if_block);
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (if_block) if_block.d(detaching);
+
+    			if (detaching) {
+    				detach(if_block_anchor);
+    			}
+    		}
+    	};
+    }
+
+    function getProps(given, required) {
+      const { props, ...others } = given;
+
+      // prune all declared props from this component
+      required.forEach(k => {
+        delete others[k];
+      });
+
+      return {
+        ...props,
+        ...others,
+      };
+    }
+
+    function instance$1($$self, $$props, $$invalidate) {
+    	let $routeInfo;
+
+    	
+
+      let { key = null, path = '', props = null, exact = undefined, fallback = undefined, component = undefined, condition = undefined, redirect = undefined } = $$props;
+
+      const { assignRoute, unassignRoute, routeInfo } = getContext(CTX_ROUTER); validate_store(routeInfo, 'routeInfo'); component_subscribe($$self, routeInfo, $$value => { $routeInfo = $$value; $$invalidate('$routeInfo', $routeInfo); });
+
+      let activeRouter = null;
+      let activeProps = {};
+      let fullpath;
+
+      [key, fullpath] = assignRoute(key, path, { condition, redirect, fallback, exact }); $$invalidate('key', key);
+      onDestroy(() => {
+        unassignRoute(fullpath);
+      });
+
+    	let { $$slots = {}, $$scope } = $$props;
+
+    	$$self.$set = $$new_props => {
+    		$$invalidate('$$props', $$props = assign(assign({}, $$props), $$new_props));
+    		if ('key' in $$new_props) $$invalidate('key', key = $$new_props.key);
+    		if ('path' in $$new_props) $$invalidate('path', path = $$new_props.path);
+    		if ('props' in $$new_props) $$invalidate('props', props = $$new_props.props);
+    		if ('exact' in $$new_props) $$invalidate('exact', exact = $$new_props.exact);
+    		if ('fallback' in $$new_props) $$invalidate('fallback', fallback = $$new_props.fallback);
+    		if ('component' in $$new_props) $$invalidate('component', component = $$new_props.component);
+    		if ('condition' in $$new_props) $$invalidate('condition', condition = $$new_props.condition);
+    		if ('redirect' in $$new_props) $$invalidate('redirect', redirect = $$new_props.redirect);
+    		if ('$$scope' in $$new_props) $$invalidate('$$scope', $$scope = $$new_props.$$scope);
+    	};
+
+    	$$self.$$.update = ($$dirty = { $routeInfo: 1, key: 1, $$props: 1 }) => {
+    		{
+            $$invalidate('activeRouter', activeRouter = $routeInfo[key]);
+            $$invalidate('activeProps', activeProps = getProps($$props, arguments[0]['$$'].props));
+          }
+    	};
+
+    	return {
+    		key,
+    		path,
+    		props,
+    		exact,
+    		fallback,
+    		component,
+    		condition,
+    		redirect,
+    		routeInfo,
+    		activeRouter,
+    		activeProps,
+    		$$props: $$props = exclude_internal_props($$props),
+    		$$slots,
+    		$$scope
+    	};
+    }
+
+    class Route extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$1, create_fragment$1, safe_not_equal, ["key", "path", "props", "exact", "fallback", "component", "condition", "redirect"]);
+    	}
+
+    	get key() {
+    		throw new Error("<Route>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set key(value) {
+    		throw new Error("<Route>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get path() {
+    		throw new Error("<Route>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set path(value) {
+    		throw new Error("<Route>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get props() {
+    		throw new Error("<Route>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set props(value) {
+    		throw new Error("<Route>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get exact() {
+    		throw new Error("<Route>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set exact(value) {
+    		throw new Error("<Route>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get fallback() {
+    		throw new Error("<Route>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set fallback(value) {
+    		throw new Error("<Route>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get component() {
+    		throw new Error("<Route>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set component(value) {
+    		throw new Error("<Route>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get condition() {
+    		throw new Error("<Route>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set condition(value) {
+    		throw new Error("<Route>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	get redirect() {
+    		throw new Error("<Route>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set redirect(value) {
+    		throw new Error("<Route>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
     }
 
     var fullpage = createCommonjsModule(function (module, exports) {
@@ -7259,11 +8750,126 @@ var app = (function () {
     const licenseKey = 'H{aA?=D;2NgC0Ldzz <v1t!n:dtW/,FbXW7L]~@+';
     const fp_utils$1 = window.fp_utils;
 
+    /* src/views/About.svelte generated by Svelte v3.9.1 */
+
+    const file$1 = "src/views/About.svelte";
+
+    function create_fragment$2(ctx) {
+    	var section, h1, t0, t1, t2, label, t4, p, dispose;
+
+    	return {
+    		c: function create() {
+    			section = element("section");
+    			h1 = element("h1");
+    			t0 = text("OK title ");
+    			t1 = text(ctx.count);
+    			t2 = space();
+    			label = element("label");
+    			label.textContent = "+";
+    			t4 = space();
+    			p = element("p");
+    			p.textContent = "Lorem ipsum dolor sit amet consectetur adipisicing elit. Illum quaerat,\n    accusamus inventore tenetur ducimus dolor, voluptas modi nesciunt delectus\n    quibusdam dolorum culpa molestiae quos, velit ratione? Quo laborum fuga sed.";
+    			add_location(h1, file$1, 5, 2, 65);
+    			add_location(label, file$1, 6, 2, 93);
+    			add_location(p, file$1, 7, 2, 157);
+    			attr(section, "class", "section");
+    			add_location(section, file$1, 4, 0, 37);
+    			dispose = listen(label, "click", prevent_default(ctx.click_handler));
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, section, anchor);
+    			append(section, h1);
+    			append(h1, t0);
+    			append(h1, t1);
+    			append(section, t2);
+    			append(section, label);
+    			append(section, t4);
+    			append(section, p);
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (changed.count) {
+    				set_data(t1, ctx.count);
+    			}
+    		},
+
+    		i: noop,
+    		o: noop,
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(section);
+    			}
+
+    			dispose();
+    		}
+    	};
+    }
+
+    function instance$2($$self, $$props, $$invalidate) {
+    	let count = 0;
+
+    	function click_handler() {
+    		const $$result = (count += 1);
+    		$$invalidate('count', count);
+    		return $$result;
+    	}
+
+    	return { count, click_handler };
+    }
+
+    class About extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$2, create_fragment$2, safe_not_equal, []);
+    	}
+    }
+
     function cubicOut(t) {
         const f = t - 1.0;
         return f * f * f + 1.0;
     }
 
+    /*! *****************************************************************************
+    Copyright (c) Microsoft Corporation. All rights reserved.
+    Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+    this file except in compliance with the License. You may obtain a copy of the
+    License at http://www.apache.org/licenses/LICENSE-2.0
+
+    THIS CODE IS PROVIDED ON AN *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION ANY IMPLIED
+    WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR PURPOSE,
+    MERCHANTABLITY OR NON-INFRINGEMENT.
+
+    See the Apache Version 2.0 License for specific language governing permissions
+    and limitations under the License.
+    ***************************************************************************** */
+
+    function __rest(s, e) {
+        var t = {};
+        for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p) && e.indexOf(p) < 0)
+            t[p] = s[p];
+        if (s != null && typeof Object.getOwnPropertySymbols === "function")
+            for (var i = 0, p = Object.getOwnPropertySymbols(s); i < p.length; i++) {
+                if (e.indexOf(p[i]) < 0 && Object.prototype.propertyIsEnumerable.call(s, p[i]))
+                    t[p[i]] = s[p[i]];
+            }
+        return t;
+    }
+
+    function fade(node, { delay = 0, duration = 400 }) {
+        const o = +getComputedStyle(node).opacity;
+        return {
+            delay,
+            duration,
+            css: t => `opacity: ${t * o}`
+        };
+    }
     function fly(node, { delay = 0, duration = 400, easing = cubicOut, x = 0, y = 0, opacity = 0 }) {
         const style = getComputedStyle(node);
         const target_opacity = +style.opacity;
@@ -7278,12 +8884,62 @@ var app = (function () {
 			opacity: ${target_opacity - (od * u)}`
         };
     }
+    function crossfade(_a) {
+        var { fallback } = _a, defaults = __rest(_a, ["fallback"]);
+        const to_receive = new Map();
+        const to_send = new Map();
+        function crossfade(from, node, params) {
+            const { delay = 0, duration = d => Math.sqrt(d) * 30, easing = cubicOut } = assign(assign({}, defaults), params);
+            const to = node.getBoundingClientRect();
+            const dx = from.left - to.left;
+            const dy = from.top - to.top;
+            const dw = from.width / to.width;
+            const dh = from.height / to.height;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            const style = getComputedStyle(node);
+            const transform = style.transform === 'none' ? '' : style.transform;
+            const opacity = +style.opacity;
+            return {
+                delay,
+                duration: is_function(duration) ? duration(d) : duration,
+                easing,
+                css: (t, u) => `
+				opacity: ${t * opacity};
+				transform-origin: top left;
+				transform: ${transform} translate(${u * dx}px,${u * dy}px) scale(${t + (1 - t) * dw}, ${t + (1 - t) * dh});
+			`
+            };
+        }
+        function transition(items, counterparts, intro) {
+            return (node, params) => {
+                items.set(params.key, {
+                    rect: node.getBoundingClientRect()
+                });
+                return () => {
+                    if (counterparts.has(params.key)) {
+                        const { rect } = counterparts.get(params.key);
+                        counterparts.delete(params.key);
+                        return crossfade(rect, node, params);
+                    }
+                    // if the node is disappearing altogether
+                    // (i.e. wasn't claimed by the other list)
+                    // then we need to supply an outro
+                    items.delete(params.key);
+                    return fallback && fallback(node, params, intro);
+                };
+            };
+        }
+        return [
+            transition(to_send, to_receive, false),
+            transition(to_receive, to_send, true)
+        ];
+    }
 
     /* node_modules/fa-svelte/src/Icon.html generated by Svelte v3.9.1 */
 
-    const file = "node_modules/fa-svelte/src/Icon.html";
+    const file$2 = "node_modules/fa-svelte/src/Icon.html";
 
-    function create_fragment(ctx) {
+    function create_fragment$3(ctx) {
     	var svg, path_1;
 
     	return {
@@ -7292,13 +8948,13 @@ var app = (function () {
     			path_1 = svg_element("path");
     			attr(path_1, "fill", "currentColor");
     			attr(path_1, "d", ctx.path);
-    			add_location(path_1, file, 7, 2, 129);
+    			add_location(path_1, file$2, 7, 2, 129);
     			attr(svg, "aria-hidden", "true");
     			attr(svg, "class", "" + null_to_empty(ctx.classes) + " svelte-p8vizn");
     			attr(svg, "role", "img");
     			attr(svg, "xmlns", "http://www.w3.org/2000/svg");
     			attr(svg, "viewBox", ctx.viewBox);
-    			add_location(svg, file, 0, 0, 0);
+    			add_location(svg, file$2, 0, 0, 0);
     		},
 
     		l: function claim(nodes) {
@@ -7335,7 +8991,7 @@ var app = (function () {
     	};
     }
 
-    function instance($$self, $$props, $$invalidate) {
+    function instance$3($$self, $$props, $$invalidate) {
     	let { icon } = $$props;
 
       let path = [];
@@ -7365,7 +9021,7 @@ var app = (function () {
     class Icon extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance, create_fragment, safe_not_equal, ["icon"]);
+    		init(this, options, instance$3, create_fragment$3, safe_not_equal, ["icon"]);
 
     		const { ctx } = this.$$;
     		const props = options.props || {};
@@ -7402,10 +9058,10 @@ var app = (function () {
 
     /* src/views/Slide1.svelte generated by Svelte v3.9.1 */
 
-    const file$1 = "src/views/Slide1.svelte";
+    const file$3 = "src/views/Slide1.svelte";
 
-    // (63:0) {#if visible}
-    function create_if_block(ctx) {
+    // (65:0) {#if visible}
+    function create_if_block$2(ctx) {
     	var div3, a0, t0, span, t2, br0, t3, div0, img, div0_intro, t4, div1, h1, t6, p, t8, br1, t9, br2, div1_intro, t10, div2, a1, t11, a2, div2_intro, current;
 
     	var icon0 = new Icon({
@@ -7454,39 +9110,40 @@ var app = (function () {
     			t11 = space();
     			a2 = element("a");
     			icon2.$$.fragment.c();
-    			attr(span, "class", "svelte-1f0e1ml");
-    			add_location(span, file$1, 66, 6, 1564);
+    			attr(span, "class", "svelte-fuj4po");
+    			add_location(span, file$3, 68, 6, 1611);
     			attr(a0, "aria-label", "call phone");
     			attr(a0, "id", "abs-contact");
     			attr(a0, "href", "tel:0847550825");
-    			attr(a0, "class", "svelte-1f0e1ml");
-    			add_location(a0, file$1, 64, 4, 1444);
-    			add_location(br0, file$1, 68, 4, 1603);
-    			attr(img, "src", "assets/logo.svg");
+    			attr(a0, "class", "svelte-fuj4po");
+    			add_location(a0, file$3, 66, 4, 1491);
+    			add_location(br0, file$3, 70, 4, 1650);
+    			attr(img, "src", "assets/logo-3.svg");
     			attr(img, "alt", "logo");
-    			add_location(img, file$1, 70, 6, 1686);
-    			attr(div0, "class", "logo svelte-1f0e1ml");
-    			add_location(div0, file$1, 69, 4, 1614);
-    			attr(h1, "class", "svelte-1f0e1ml");
-    			add_location(h1, file$1, 73, 6, 1816);
-    			add_location(p, file$1, 74, 6, 1846);
-    			add_location(br1, file$1, 75, 6, 1890);
-    			add_location(br2, file$1, 76, 6, 1903);
+    			add_location(img, file$3, 72, 6, 1733);
+    			attr(div0, "class", "logo svelte-fuj4po");
+    			add_location(div0, file$3, 71, 4, 1661);
+    			attr(h1, "class", "svelte-fuj4po");
+    			add_location(h1, file$3, 75, 6, 1865);
+    			attr(p, "class", "svelte-fuj4po");
+    			add_location(p, file$3, 76, 6, 1895);
+    			add_location(br1, file$3, 77, 6, 1939);
+    			add_location(br2, file$3, 78, 6, 1952);
     			attr(div1, "class", "body");
-    			add_location(div1, file$1, 72, 4, 1742);
+    			add_location(div1, file$3, 74, 4, 1791);
     			attr(a1, "aria-label", "facebook link");
     			attr(a1, "href", "https://facebook.com/bankamnodchivit");
-    			attr(a1, "class", "svelte-1f0e1ml");
-    			add_location(a1, file$1, 79, 6, 2001);
+    			attr(a1, "class", "svelte-fuj4po");
+    			add_location(a1, file$3, 81, 6, 2050);
     			attr(a2, "aria-label", "line link");
     			attr(a2, "href", "https://facebook.com/bankamnodchivit");
-    			attr(a2, "class", "svelte-1f0e1ml");
-    			add_location(a2, file$1, 82, 6, 2148);
+    			attr(a2, "class", "svelte-fuj4po");
+    			add_location(a2, file$3, 84, 6, 2197);
     			attr(div2, "class", "footer");
-    			add_location(div2, file$1, 78, 4, 1925);
+    			add_location(div2, file$3, 80, 4, 1974);
     			attr(div3, "id", "slide1");
-    			attr(div3, "class", "svelte-1f0e1ml");
-    			add_location(div3, file$1, 63, 2, 1422);
+    			attr(div3, "class", "svelte-fuj4po");
+    			add_location(div3, file$3, 65, 2, 1469);
     		},
 
     		m: function mount(target, anchor) {
@@ -7586,10 +9243,10 @@ var app = (function () {
     	};
     }
 
-    function create_fragment$1(ctx) {
+    function create_fragment$4(ctx) {
     	var if_block_anchor, current;
 
-    	var if_block = (ctx.visible) && create_if_block();
+    	var if_block = (ctx.visible) && create_if_block$2();
 
     	return {
     		c: function create() {
@@ -7613,7 +9270,7 @@ var app = (function () {
     					if_block.p(changed, ctx);
     					transition_in(if_block, 1);
     				} else {
-    					if_block = create_if_block();
+    					if_block = create_if_block$2();
     					if_block.c();
     					transition_in(if_block, 1);
     					if_block.m(if_block_anchor.parentNode, if_block_anchor);
@@ -7648,7 +9305,7 @@ var app = (function () {
     	};
     }
 
-    function instance$1($$self, $$props, $$invalidate) {
+    function instance$4($$self, $$props, $$invalidate) {
     	
       let { visible = true } = $$props;
 
@@ -7667,7 +9324,7 @@ var app = (function () {
     class Slide1 extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$1, create_fragment$1, safe_not_equal, ["visible"]);
+    		init(this, options, instance$4, create_fragment$4, safe_not_equal, ["visible"]);
     	}
 
     	get visible() {
@@ -7681,10 +9338,10 @@ var app = (function () {
 
     /* src/views/Slide2.svelte generated by Svelte v3.9.1 */
 
-    const file$2 = "src/views/Slide2.svelte";
+    const file$4 = "src/views/Slide2.svelte";
 
-    // (43:0) {#if visible}
-    function create_if_block$1(ctx) {
+    // (65:0) {#if visible}
+    function create_if_block$3(ctx) {
     	var section, div0, img, div0_intro, t0, div1, t1, br0, t2, br1, t3, div1_intro;
 
     	return {
@@ -7694,24 +9351,24 @@ var app = (function () {
     			img = element("img");
     			t0 = space();
     			div1 = element("div");
-    			t1 = text("เมื่อผมสามารถรู้ความเป็นไปของชีวิตคนในบ้านได้\n      ");
+    			t1 = text("ความยากดีมีจน ความสุขความทุกข์\n      ");
     			br0 = element("br");
-    			t2 = text("\n      รู้คุณสมบัติของบ้านที่ส่งผลกระทบกับคนอยู่อาศัยได้\n      ");
+    			t2 = text("\n      มีผลกำเนิดจากบ้านที่เราอยู่\n      ");
     			br1 = element("br");
-    			t3 = text("\n      ผมก็ควรต้องรู้วิธีแก้ไขชีวิตคนในบ้านให้ได้ด้วย");
+    			t3 = text("\n      มีนคือความลับที่หลายคนไม่เคยรู้ และคิดไม่ถึง");
     			attr(img, "src", "img/69340853_109203763782390_221042970084769792_o.webp");
     			attr(img, "alt", "people");
-    			attr(img, "class", "svelte-fc2xgp");
-    			add_location(img, file$2, 45, 6, 1103);
-    			attr(div0, "class", "profile svelte-fc2xgp");
-    			add_location(div0, file$2, 44, 4, 1028);
-    			add_location(br0, file$2, 51, 6, 1342);
-    			add_location(br1, file$2, 53, 6, 1411);
-    			attr(div1, "class", "quote svelte-fc2xgp");
-    			add_location(div1, file$2, 49, 4, 1216);
+    			attr(img, "class", "svelte-kgv5zi");
+    			add_location(img, file$4, 67, 6, 1772);
+    			attr(div0, "class", "profile svelte-kgv5zi");
+    			add_location(div0, file$4, 66, 4, 1697);
+    			add_location(br0, file$4, 73, 6, 1996);
+    			add_location(br1, file$4, 75, 6, 2043);
+    			attr(div1, "class", "quote svelte-kgv5zi");
+    			add_location(div1, file$4, 71, 4, 1885);
     			attr(section, "id", "slide2");
-    			attr(section, "class", "svelte-fc2xgp");
-    			add_location(section, file$2, 43, 2, 1002);
+    			attr(section, "class", "svelte-kgv5zi");
+    			add_location(section, file$4, 65, 2, 1671);
     		},
 
     		m: function mount(target, anchor) {
@@ -7753,10 +9410,10 @@ var app = (function () {
     	};
     }
 
-    function create_fragment$2(ctx) {
+    function create_fragment$5(ctx) {
     	var if_block_anchor;
 
-    	var if_block = (ctx.visible) && create_if_block$1();
+    	var if_block = (ctx.visible) && create_if_block$3();
 
     	return {
     		c: function create() {
@@ -7776,7 +9433,7 @@ var app = (function () {
     		p: function update(changed, ctx) {
     			if (ctx.visible) {
     				if (!if_block) {
-    					if_block = create_if_block$1();
+    					if_block = create_if_block$3();
     					if_block.c();
     					transition_in(if_block, 1);
     					if_block.m(if_block_anchor.parentNode, if_block_anchor);
@@ -7805,7 +9462,7 @@ var app = (function () {
     	};
     }
 
-    function instance$2($$self, $$props, $$invalidate) {
+    function instance$5($$self, $$props, $$invalidate) {
     	
       let { visible = true } = $$props;
 
@@ -7824,7 +9481,7 @@ var app = (function () {
     class Slide2 extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$2, create_fragment$2, safe_not_equal, ["visible"]);
+    		init(this, options, instance$5, create_fragment$5, safe_not_equal, ["visible"]);
     	}
 
     	get visible() {
@@ -7835,6 +9492,159 @@ var app = (function () {
     		throw new Error("<Slide2>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
     	}
     }
+
+    var db = [
+    	{
+    		id: "1",
+    		title: "ในทุกๆ หนึ่งเดือน ผมมีเดินทางไปดูบ้านไม่น้อยกว่า 50 หลัง อยา...",
+    		image: "post-img/1.jpg",
+    		md: "ในทุกๆ หนึ่งเดือน ผมมีเดินทางไปดูบ้านไม่น้อยกว่า 50 หลัง อยากให้ทุกท่านที่ผมไปบ้านดูให้ ในวันที่ได้รับคำแนะนำ ขอให้ได้จด หรืออัดบันทึกเสียง เอาไว้ให้ครบถ้วนเลยนะครับ\nเพราะผมคงไม่สามารถจดจำได้หมดว่าบ้านใครเป็นบ้านใคร\n\nด้วยเหตุนี้ผมจึงพยายามที่ให้คำแนะนำด้วยหลักการ ที่สามารถไปดูแลตัวเองได้ ไม่จำเป็นต้องมีคำถามอะไรเพิ่มเติมอีก มีข้อสงสัยในหลักการสามารถสอบถามเพิ่มเติมได้ แต่สำหรับรายละเอียดในตัวบ้านผมจำไม่ได้แน่นอนครับ\n\nขอให้ทำให้ครบในทุกส่วนที่ได้แนะนำ มันมีความสำคัญในทุกเรื่อง เราต้องการพลังที่มากพอ ผลพลังที่ได้จะมาตามเนื้อผ้าที่เราทำ อันนี้อยู่ที่ตัวท่านเองว่าต้องการเป้าหมายมากน้อยแค่ไหน \"ทำไม่ครบ พลังไม่พอ ยังไปไม่ได้ \"\n\nสำหรับปีนี้ทิศที่เป็นปัญหา คือทิศตะวันตกเฉียงใต้ และทิศตะวันออกเฉียงเหนือ บ้านใน 2 ทิศนี้ ถ้าได้ทำตามคำแนะนำให้ครบ ก็จะไม่เป็นปัญหา\n\nทิศอสูร หรือปีชง ไม่ได้มีความหมายอะไร ที่จะต้องมากังวล ถ้ารู้วิธีในการควบคุมมัน ให้ทำตามคำแนะนำ ปรับแก้ไขบ้านในทุกอย่างแล้ว เรื่องพวกนี้ก็จะไม่ใช่ปัญหาใหญ่\n\nถ้าพลังพื้นฐานของบ้านมีความแข็งแรงมากเพียงพอ ก็จะไม่มีความจำเป็นต้องไปตรวจปรับแก้ไขบ้านในทุกปี ในแต่ละปีอาจมีกระทบบ้างเพียงเล็กๆน้อยๆ ตามปกติ\nแต่ควรตรวจบ้านทุกครั้งเมื่อมีการต่อเติมบ้าน หรือเมื่อเรารู้สึกผิดปกติ การเคลื่อนย้ายตำแหน่งสิ่งของ รวมถึงตัวเราเอง และการต่อเติมบ้าน มันมีผล ทำให้พลังของบ้านเปลี่ยนไปได้\n",
+    		html: "<p>ในทุกๆ หนึ่งเดือน ผมมีเดินทางไปดูบ้านไม่น้อยกว่า 50 หลัง อยากให้ทุกท่านที่ผมไปบ้านดูให้ ในวันที่ได้รับคำแนะนำ ขอให้ได้จด หรืออัดบันทึกเสียง เอาไว้ให้ครบถ้วนเลยนะครับ\nเพราะผมคงไม่สามารถจดจำได้หมดว่าบ้านใครเป็นบ้านใคร</p>\n<p>ด้วยเหตุนี้ผมจึงพยายามที่ให้คำแนะนำด้วยหลักการ ที่สามารถไปดูแลตัวเองได้ ไม่จำเป็นต้องมีคำถามอะไรเพิ่มเติมอีก มีข้อสงสัยในหลักการสามารถสอบถามเพิ่มเติมได้ แต่สำหรับรายละเอียดในตัวบ้านผมจำไม่ได้แน่นอนครับ</p>\n<p>ขอให้ทำให้ครบในทุกส่วนที่ได้แนะนำ มันมีความสำคัญในทุกเรื่อง เราต้องการพลังที่มากพอ ผลพลังที่ได้จะมาตามเนื้อผ้าที่เราทำ อันนี้อยู่ที่ตัวท่านเองว่าต้องการเป้าหมายมากน้อยแค่ไหน &quot;ทำไม่ครบ พลังไม่พอ ยังไปไม่ได้ &quot;</p>\n<p>สำหรับปีนี้ทิศที่เป็นปัญหา คือทิศตะวันตกเฉียงใต้ และทิศตะวันออกเฉียงเหนือ บ้านใน 2 ทิศนี้ ถ้าได้ทำตามคำแนะนำให้ครบ ก็จะไม่เป็นปัญหา</p>\n<p>ทิศอสูร หรือปีชง ไม่ได้มีความหมายอะไร ที่จะต้องมากังวล ถ้ารู้วิธีในการควบคุมมัน ให้ทำตามคำแนะนำ ปรับแก้ไขบ้านในทุกอย่างแล้ว เรื่องพวกนี้ก็จะไม่ใช่ปัญหาใหญ่</p>\n<p>ถ้าพลังพื้นฐานของบ้านมีความแข็งแรงมากเพียงพอ ก็จะไม่มีความจำเป็นต้องไปตรวจปรับแก้ไขบ้านในทุกปี ในแต่ละปีอาจมีกระทบบ้างเพียงเล็กๆน้อยๆ ตามปกติ\nแต่ควรตรวจบ้านทุกครั้งเมื่อมีการต่อเติมบ้าน หรือเมื่อเรารู้สึกผิดปกติ การเคลื่อนย้ายตำแหน่งสิ่งของ รวมถึงตัวเราเอง และการต่อเติมบ้าน มันมีผล ทำให้พลังของบ้านเปลี่ยนไปได้</p>\n",
+    		images: [
+    			"post-img/1.jpg"
+    		]
+    	},
+    	{
+    		id: "2",
+    		title: "ให้ระวังเรื่องการต่อเติมบ้าน การย้ายที่นอน การย้ายที่นั่งทำง...",
+    		image: "post-img/2.jpg",
+    		md: "ให้ระวังเรื่องการต่อเติมบ้าน การย้ายที่นอน การย้ายที่นั่งทำงาน จนถึงการย้ายบ้าน เมื่อมีการเปลี่ยนแปลงตำแหน่งที่เราอยู่ ให้สังเกตุทิศทางชีวิตเราด้วย ว่าไปทางด้านใด ดีขึ้นหรือแย่ลง ถ้าแย่ลงอย่าปล่อยเอาไว้ต้องรีบแก้ไขนะครับ\n\nปัญหาที่เจอบ่อยๆ คือการต่อเติมโรงรถ ต่อเติมครัวด้านหลัง\nมันทำให้บ้านเปลี่ยนคุณสมบัติได้ และทำให้ชีวิตคนในบ้านเปลี่ยนได้ทันที\n\nบางคน มีเงิน มีทอง จากบ้านหลังเล็กๆ คอนโดเล็กๆ แล้วขยับ ซื้อบ้านใหม่ ย้ายบ้านใหม่ นั่นก็จะทำให้ชีวิตคุณเปลี่ยนได้ โอกาสที่จะดีเหมือนเดิมมีน้อย เพราะการอยู่บ้านที่ขนาดใหญ่ขึ้น การควบคุมพลังบ้าน ก็ต้องมีตำแหน่งที่ต้องระวังมากขึ้น ผมก็เจอได้บ่อย มาอยู่บ้านใหม่แล้วแย่ลงกว่าเดิม\n\nท่านที่ผมช่วยเลือกซื้อบ้านให้ หลังไหนที่ผมห้ามไม่ให้ซื้อ ให้เชื่อมั่นเถอะครับว่ามันมีปัญหาแน่ถ้าได้ครอบครองอยู่อาศัย ถึงแม้เสียค่าใช้จ่ายในการดูไปแล้ว แต่ไม่ได้บ้าน ก็ถือว่าคุณกำไรแล้วละครับ ถ้าคุณได้บ้านนั้นไป คุณจะสูญเสียกว่านี้มากมายนัก\n\nและในทุกวันบ้านหลังที่ผมไปปรับแก้ไขให้ ส่วนใหญ่ก็เป็นบ้านแบบที่ ผมห้ามไม่ให้ซื้อทั้งสิ้น\n",
+    		html: "<p>ให้ระวังเรื่องการต่อเติมบ้าน การย้ายที่นอน การย้ายที่นั่งทำงาน จนถึงการย้ายบ้าน เมื่อมีการเปลี่ยนแปลงตำแหน่งที่เราอยู่ ให้สังเกตุทิศทางชีวิตเราด้วย ว่าไปทางด้านใด ดีขึ้นหรือแย่ลง ถ้าแย่ลงอย่าปล่อยเอาไว้ต้องรีบแก้ไขนะครับ</p>\n<p>ปัญหาที่เจอบ่อยๆ คือการต่อเติมโรงรถ ต่อเติมครัวด้านหลัง\nมันทำให้บ้านเปลี่ยนคุณสมบัติได้ และทำให้ชีวิตคนในบ้านเปลี่ยนได้ทันที</p>\n<p>บางคน มีเงิน มีทอง จากบ้านหลังเล็กๆ คอนโดเล็กๆ แล้วขยับ ซื้อบ้านใหม่ ย้ายบ้านใหม่ นั่นก็จะทำให้ชีวิตคุณเปลี่ยนได้ โอกาสที่จะดีเหมือนเดิมมีน้อย เพราะการอยู่บ้านที่ขนาดใหญ่ขึ้น การควบคุมพลังบ้าน ก็ต้องมีตำแหน่งที่ต้องระวังมากขึ้น ผมก็เจอได้บ่อย มาอยู่บ้านใหม่แล้วแย่ลงกว่าเดิม</p>\n<p>ท่านที่ผมช่วยเลือกซื้อบ้านให้ หลังไหนที่ผมห้ามไม่ให้ซื้อ ให้เชื่อมั่นเถอะครับว่ามันมีปัญหาแน่ถ้าได้ครอบครองอยู่อาศัย ถึงแม้เสียค่าใช้จ่ายในการดูไปแล้ว แต่ไม่ได้บ้าน ก็ถือว่าคุณกำไรแล้วละครับ ถ้าคุณได้บ้านนั้นไป คุณจะสูญเสียกว่านี้มากมายนัก</p>\n<p>และในทุกวันบ้านหลังที่ผมไปปรับแก้ไขให้ ส่วนใหญ่ก็เป็นบ้านแบบที่ ผมห้ามไม่ให้ซื้อทั้งสิ้น</p>\n",
+    		images: [
+    			"post-img/2.jpg"
+    		]
+    	},
+    	{
+    		id: "3",
+    		title: "ตำแหน่งของเตาไฟในบ้านที่เป็นปัญหา",
+    		image: "post-img/3.jpg",
+    		md: "ตำแหน่งของเตาไฟในบ้านที่เป็นปัญหา\n\nเตาไฟเป็นสิ่งหนึ่งที่สามารถช่วยกระตุ้นพลังของบ้านได้ ทั้งในทางที่ดีและในทางที่ร้าย เมื่อไฟจากเตา มันคือธาตุไฟ ที่สามารถส่งเสริมทั้งความมั่งคั่งและความหายนะได้ด้วยเหมือนกัน ซึ่งก็แล้วแต่ว่าจุดที่เราวางเตาอยู่มันอยู่ตรงไหน ที่จะส่งเสริมในเรื่องดีหรือจะส่งเสริมเรื่องร้าย\n\nอีกทั้งเมื่อเตาไฟเมื่อถูกจุดติดไฟ อุณหภูมิเปลี่ยน ไฟจะดูดอากาศ เกิดการไหลเวียนของลมจากบริเวณรอบๆ ใกล้ๆ เตาไฟ มันจึงทำให้พลังของบ้านแข็งแรงขึ้น เป็นสองชั้น เลยทีเดียว\n\nจากที่เราเคยรู้ในหนังสือหลายเล่มมีระบุข้อห้ามมากมายเกี่ยวกับเตาไฟ เช่น ห้ามเตาไฟอยู่ตรงประตูบ้าน ห้ามเตาไฟใกล้กับซิงค์น้ำ ห้ามนอนชั้นบนตรงตำแหน่งเตาไฟ ฯลฯ ความจริงแล้วสิ่งเหล่านี้ ไม่ใช่ต้นเหตุของปัญหาเลย อย่าไปขยับวางตามข้อแนะนำจากในหนังสือ ให้เป็นปัญหาในการใช้งานเลยครับ\n\nแล้วอย่างไรถึงเป็นปัญหา?\n\nบ้านทุกหลังมีจุดหายนะอยู่สองจุด สองจุดนี้ละครับที่เป็นปัญหา แล้วสองจุดนี้มันอยู่ตรงไหนของบ้าน มันไม่สามารถบอกได้ด้วยตาเห็น ซึ่งผมต้องตรวจเช็คให้ที่บ้านจึงจะทราบ\n\nทุกคน ที่ผมไปดูบ้านให้แล้ว ให้เปิดดูในกระดาษผังบ้านที่เขียนไว้ให้ ผมจะมีเขียนเอาไว้ 2 ตำแหน่ง ที่เป็นตำแหน่งหายนะ พื้นที่สองจุดนี้ละครับ อย่าให้มีเตาวางไว้เด็ดขาดเลย\n\nสิ่งที่จะเกิดขึ้นถ้ามีเตาอยู่บริเวณนี้ คนในบ้านจะมีปัญหาสุขภาพรุนแรง โชคร้าย การเงิน และการงาน ก็จะมีปัญหาไปหมด\n\nและนี่คือตัวอย่างอันหนึ่ง ของการขยับย้ายสิ่งของเพียงหนึ่งชิ้น ก็สามารถทำให้ชีวิตเราเปลี่ยนไปได้เหมือนกัน\n",
+    		html: "<p>ตำแหน่งของเตาไฟในบ้านที่เป็นปัญหา</p>\n<p>เตาไฟเป็นสิ่งหนึ่งที่สามารถช่วยกระตุ้นพลังของบ้านได้ ทั้งในทางที่ดีและในทางที่ร้าย เมื่อไฟจากเตา มันคือธาตุไฟ ที่สามารถส่งเสริมทั้งความมั่งคั่งและความหายนะได้ด้วยเหมือนกัน ซึ่งก็แล้วแต่ว่าจุดที่เราวางเตาอยู่มันอยู่ตรงไหน ที่จะส่งเสริมในเรื่องดีหรือจะส่งเสริมเรื่องร้าย</p>\n<p>อีกทั้งเมื่อเตาไฟเมื่อถูกจุดติดไฟ อุณหภูมิเปลี่ยน ไฟจะดูดอากาศ เกิดการไหลเวียนของลมจากบริเวณรอบๆ ใกล้ๆ เตาไฟ มันจึงทำให้พลังของบ้านแข็งแรงขึ้น เป็นสองชั้น เลยทีเดียว</p>\n<p>จากที่เราเคยรู้ในหนังสือหลายเล่มมีระบุข้อห้ามมากมายเกี่ยวกับเตาไฟ เช่น ห้ามเตาไฟอยู่ตรงประตูบ้าน ห้ามเตาไฟใกล้กับซิงค์น้ำ ห้ามนอนชั้นบนตรงตำแหน่งเตาไฟ ฯลฯ ความจริงแล้วสิ่งเหล่านี้ ไม่ใช่ต้นเหตุของปัญหาเลย อย่าไปขยับวางตามข้อแนะนำจากในหนังสือ ให้เป็นปัญหาในการใช้งานเลยครับ</p>\n<p>แล้วอย่างไรถึงเป็นปัญหา?</p>\n<p>บ้านทุกหลังมีจุดหายนะอยู่สองจุด สองจุดนี้ละครับที่เป็นปัญหา แล้วสองจุดนี้มันอยู่ตรงไหนของบ้าน มันไม่สามารถบอกได้ด้วยตาเห็น ซึ่งผมต้องตรวจเช็คให้ที่บ้านจึงจะทราบ</p>\n<p>ทุกคน ที่ผมไปดูบ้านให้แล้ว ให้เปิดดูในกระดาษผังบ้านที่เขียนไว้ให้ ผมจะมีเขียนเอาไว้ 2 ตำแหน่ง ที่เป็นตำแหน่งหายนะ พื้นที่สองจุดนี้ละครับ อย่าให้มีเตาวางไว้เด็ดขาดเลย</p>\n<p>สิ่งที่จะเกิดขึ้นถ้ามีเตาอยู่บริเวณนี้ คนในบ้านจะมีปัญหาสุขภาพรุนแรง โชคร้าย การเงิน และการงาน ก็จะมีปัญหาไปหมด</p>\n<p>และนี่คือตัวอย่างอันหนึ่ง ของการขยับย้ายสิ่งของเพียงหนึ่งชิ้น ก็สามารถทำให้ชีวิตเราเปลี่ยนไปได้เหมือนกัน</p>\n",
+    		images: [
+    			"post-img/3.jpg"
+    		]
+    	},
+    	{
+    		id: "4",
+    		title: "บ้านไม่เลือกคน แต่คนต้องเลือกบ้าน",
+    		image: "post-img/4.jpg",
+    		md: "บ้านไม่เลือกคน แต่คนต้องเลือกบ้าน\n\nหมายความว่า ไม่ว่าคุณจะเป็นใคร หากไปอยู่บ้านที่มีพลังที่ดี คุณก็จะมีความสุขความเจริญรุ่งเรืองได้ทุกคน แต่หากว่าบ้านที่มีปัญหา บ้านมีพลังไม่ดี ใครก็ตามที่จะอยู่บ้านหลังนั้นก็จะมีแต่ปัญหา เหนื่อยยาก ทำกินไม่ขึ้น ทุกคน\n\nดังนั้น เมื่อเรายังมีโอกาส ที่จะเลือกซื้อบ้านได้ เลือกแบบบ้านได้ ก็ควรที่จะเลือกก่อน เลือกบ้านหลังที่ดีที่สุด เพื่อชีวิตของเรา และครอบครัว\n\nอย่าได้คิดว่า บ้านหลังไหนๆก็เหมือนกัน การซื้อหรือสร้างบ้าน โดยไม่ต้องสนใจอะไร ดูแค่เพียงความสวยงาม ให้ได้แบบบ้านที่ถูกใจก็พอแล้ว ให้ระวัง ชีวิตเกือบทั้งชีวิตของเราและครอบครัวของเรามันขึ้นอยู่กับบ้านหลังนั้นเลยนะครับ ด้วยความปรารถนาดีครับ\n\nในปีนี้หากพอมีเวลา ผมมีโครงการว่าจะทำคลิปวิดีโอสั้นๆ แนะนำเลือกบ้านหลังที่ดีที่สุดของแต่ละโครงการบ้านจัดสรร ในกรุงเทพฯและปริมณฑล โดยจะทำสัปดาห์ละ1โครงการ คนที่กำลังจะซื้อบ้านก็ขอให้ติดตามกันนะครับ\n",
+    		html: "<p>บ้านไม่เลือกคน แต่คนต้องเลือกบ้าน</p>\n<p>หมายความว่า ไม่ว่าคุณจะเป็นใคร หากไปอยู่บ้านที่มีพลังที่ดี คุณก็จะมีความสุขความเจริญรุ่งเรืองได้ทุกคน แต่หากว่าบ้านที่มีปัญหา บ้านมีพลังไม่ดี ใครก็ตามที่จะอยู่บ้านหลังนั้นก็จะมีแต่ปัญหา เหนื่อยยาก ทำกินไม่ขึ้น ทุกคน</p>\n<p>ดังนั้น เมื่อเรายังมีโอกาส ที่จะเลือกซื้อบ้านได้ เลือกแบบบ้านได้ ก็ควรที่จะเลือกก่อน เลือกบ้านหลังที่ดีที่สุด เพื่อชีวิตของเรา และครอบครัว</p>\n<p>อย่าได้คิดว่า บ้านหลังไหนๆก็เหมือนกัน การซื้อหรือสร้างบ้าน โดยไม่ต้องสนใจอะไร ดูแค่เพียงความสวยงาม ให้ได้แบบบ้านที่ถูกใจก็พอแล้ว ให้ระวัง ชีวิตเกือบทั้งชีวิตของเราและครอบครัวของเรามันขึ้นอยู่กับบ้านหลังนั้นเลยนะครับ ด้วยความปรารถนาดีครับ</p>\n<p>ในปีนี้หากพอมีเวลา ผมมีโครงการว่าจะทำคลิปวิดีโอสั้นๆ แนะนำเลือกบ้านหลังที่ดีที่สุดของแต่ละโครงการบ้านจัดสรร ในกรุงเทพฯและปริมณฑล โดยจะทำสัปดาห์ละ1โครงการ คนที่กำลังจะซื้อบ้านก็ขอให้ติดตามกันนะครับ</p>\n",
+    		images: [
+    			"post-img/4.jpg"
+    		]
+    	},
+    	{
+    		id: "5",
+    		title: "การพิจารณาเลือกซื้อแปลงที่ดิน",
+    		image: "post-img/5.jpg",
+    		md: "การพิจารณาเลือกซื้อแปลงที่ดิน\n\nแปลงที่ดินที่เราจะซื้อมีข้อกำหนดที่เรากังวลอยู่หลายเรื่องเช่นแปลงที่ดินมีรูปร่าง ไม่ใช่ทรงรูปสี่เหลี่ยม เป็นที่ดินชายธง เป็นที่ดินสี่เหลี่ยมคางหมู หรือเป็นที่ดินที่มีรูปทรงต่างๆที่ให้เราได้จินตนาการว่าจะมีผลอย่างนั้นอย่างนี้\n\nโดยปกติแล้วแปลงที่ดิน เพียงอย่างเดียวยังไม่มีพลังฮวงจุ้ยที่จะส่งผลให้กับเจ้าของที่ดินได้ พลังฮวงจุ้ยจะเกิดขึ้นเมื่อเราสร้างอาคารขึ้นบนแปลงที่ดินนั้น และเราต้องเข้าไปอยู่ในอาคารนั้น ผลของพลังฮวงจุ้ยจึงจะส่งผลกับเราได้\n\nแต่อย่างไรก็ตามแปลงที่ดิน ก็เป็นจุดเริ่มต้นในการที่จะกำหนด พลังฮวงจุ้ย ด้วยเช่นกัน\nเนื่องจากอาคารที่เราสร้าง พลังของฮวงจุ้ยที่ได้จะแตกต่างกันไป ตามทิศทางของอาคารที่เราสร้าง ดังนั้นแปลงที่ดิน ที่เราจะซื้อหันไปทางทิศทางไหน เราก็จะได้อาคารหันไปทางทิศนั้นด้วยเหมือนกัน พลังฮวงจุ้ย ที่เกิดขึ้น จึงถือได้ว่ามันกำเนิด หรือกำหนดมาจาก แปลงที่ดินเป็นอันดับแรก ดังนั้นมันจึงมีความสำคัญ ซึ่งเราควรจะต้องพิจรณาเลือกก่อนที่เราจะซื้อ ถ้าเป็นไปได้\n\nสำหรับแปลงที่ดินที่ไม่ใช่เป็นรูปทรงสี่เหลี่ยมก็ไม่ใช่เป็นเรื่องที่ต้องกังวลมันมีวิธีจัดการกับมัน ถ้าเรารู้วิธี\n\nขยายความ ว่าทิศของแปลงที่ดินมีความสำคัญอย่างไร\nในทิศแต่ละทิศ เมื่อสร้างอาคารขึ้นมาคุณสมบัติของอาคารที่จะให้พลังฮวงจุ้ยส่งผลกับผู้อยู่อาศัย จะแตกต่างกันไป และมันจะส่งผลในเรื่องต่างๆไม่เหมือนกัน และที่สำคัญมันจะทำให้อาคารที่ได้ มีอายุของอาคาร ที่ไม่เท่ากันอีกด้วย\n\nการสร้างบ้านที่ขนาดใหญ่ สิ่งที่ต้อง พิจารณาให้มากคือเรื่องของอายุของอาคาร เมื่อเราสร้างที่อยู่อาศัยบนที่ดินแปลงนั้น ในบ้านที่มีขนาดใหญ่ การปรับแก้ไขทำได้ไม่ง่าย หากถ้ามันหมดอายุลง อายุของบ้านแต่ละหลังมีไม่เท่ากัน ตามที่เราได้เห็นทั่วไป บ้านและอาคารจะมีช่วงเวลาที่เจริญรุ่งเรือง และมีช่วงเวลาที่หมดความเจริญรุ่งเรือง ไม่ว่าจะเป็นปราสาท หรืออาคารเก่าแก่ ที่เราเคยเห็น เมื่อมันหมดอายุแล้ว คนก็จะอยู่อาศัยไม่ได้ และจะถูกปล่อยเสื่อมโทรม รกร้างไปในที่สุด\n\nอีกประเด็นหนึ่ง ที่แปลงนั้นๆที่เราเลือกก็ควรมีทิศที่สอดคล้องกับทิศประจำตัวของแต่ละคนด้วย ก็จะยิ่งดี\n",
+    		html: "<p>การพิจารณาเลือกซื้อแปลงที่ดิน</p>\n<p>แปลงที่ดินที่เราจะซื้อมีข้อกำหนดที่เรากังวลอยู่หลายเรื่องเช่นแปลงที่ดินมีรูปร่าง ไม่ใช่ทรงรูปสี่เหลี่ยม เป็นที่ดินชายธง เป็นที่ดินสี่เหลี่ยมคางหมู หรือเป็นที่ดินที่มีรูปทรงต่างๆที่ให้เราได้จินตนาการว่าจะมีผลอย่างนั้นอย่างนี้</p>\n<p>โดยปกติแล้วแปลงที่ดิน เพียงอย่างเดียวยังไม่มีพลังฮวงจุ้ยที่จะส่งผลให้กับเจ้าของที่ดินได้ พลังฮวงจุ้ยจะเกิดขึ้นเมื่อเราสร้างอาคารขึ้นบนแปลงที่ดินนั้น และเราต้องเข้าไปอยู่ในอาคารนั้น ผลของพลังฮวงจุ้ยจึงจะส่งผลกับเราได้</p>\n<p>แต่อย่างไรก็ตามแปลงที่ดิน ก็เป็นจุดเริ่มต้นในการที่จะกำหนด พลังฮวงจุ้ย ด้วยเช่นกัน\nเนื่องจากอาคารที่เราสร้าง พลังของฮวงจุ้ยที่ได้จะแตกต่างกันไป ตามทิศทางของอาคารที่เราสร้าง ดังนั้นแปลงที่ดิน ที่เราจะซื้อหันไปทางทิศทางไหน เราก็จะได้อาคารหันไปทางทิศนั้นด้วยเหมือนกัน พลังฮวงจุ้ย ที่เกิดขึ้น จึงถือได้ว่ามันกำเนิด หรือกำหนดมาจาก แปลงที่ดินเป็นอันดับแรก ดังนั้นมันจึงมีความสำคัญ ซึ่งเราควรจะต้องพิจรณาเลือกก่อนที่เราจะซื้อ ถ้าเป็นไปได้</p>\n<p>สำหรับแปลงที่ดินที่ไม่ใช่เป็นรูปทรงสี่เหลี่ยมก็ไม่ใช่เป็นเรื่องที่ต้องกังวลมันมีวิธีจัดการกับมัน ถ้าเรารู้วิธี</p>\n<p>ขยายความ ว่าทิศของแปลงที่ดินมีความสำคัญอย่างไร\nในทิศแต่ละทิศ เมื่อสร้างอาคารขึ้นมาคุณสมบัติของอาคารที่จะให้พลังฮวงจุ้ยส่งผลกับผู้อยู่อาศัย จะแตกต่างกันไป และมันจะส่งผลในเรื่องต่างๆไม่เหมือนกัน และที่สำคัญมันจะทำให้อาคารที่ได้ มีอายุของอาคาร ที่ไม่เท่ากันอีกด้วย</p>\n<p>การสร้างบ้านที่ขนาดใหญ่ สิ่งที่ต้อง พิจารณาให้มากคือเรื่องของอายุของอาคาร เมื่อเราสร้างที่อยู่อาศัยบนที่ดินแปลงนั้น ในบ้านที่มีขนาดใหญ่ การปรับแก้ไขทำได้ไม่ง่าย หากถ้ามันหมดอายุลง อายุของบ้านแต่ละหลังมีไม่เท่ากัน ตามที่เราได้เห็นทั่วไป บ้านและอาคารจะมีช่วงเวลาที่เจริญรุ่งเรือง และมีช่วงเวลาที่หมดความเจริญรุ่งเรือง ไม่ว่าจะเป็นปราสาท หรืออาคารเก่าแก่ ที่เราเคยเห็น เมื่อมันหมดอายุแล้ว คนก็จะอยู่อาศัยไม่ได้ และจะถูกปล่อยเสื่อมโทรม รกร้างไปในที่สุด</p>\n<p>อีกประเด็นหนึ่ง ที่แปลงนั้นๆที่เราเลือกก็ควรมีทิศที่สอดคล้องกับทิศประจำตัวของแต่ละคนด้วย ก็จะยิ่งดี</p>\n",
+    		images: [
+    			"post-img/5.jpg"
+    		]
+    	},
+    	{
+    		id: "6",
+    		title: "ปฐมบทการปรับฮวงจุ้ยบ้าน",
+    		image: "post-img/6.jpg",
+    		md: "ปฐมบทการปรับฮวงจุ้ยบ้าน\n\nการข้ามเวลา ไปปรับฮวงจุ้ยบ้าน\nการแตกตัวบ้าน แล้วปรับฮวงจุ้ยบ้าน\nการชุบชีวิตบ้าน ฟื้นคืน แล้วปรับฮวงจุ้ยบ้าน\nฯลฯ\n\nตำราเหล่านี้ เราอาจไม่เคยได้ยินได้รู้ (มันมีด้วยหรือ?)\nฮวงจุ้ยเป็นพลังที่เรามองไม่เห็น แต่สามารถกำหนดผลได้\n\nฮวงจุ้ยที่เรารู้จักคือสิ่งที่เรามองเห็น นั่นเป็นเพียงแค่องค์ประกอบหนึ่งของฮวงจุ้ย ไม่สามารถนำไปใช้ประโยชน์อะไรได้ เพราะมันไม่ใช่จุดเริ่มต้นของพลังที่จะใช้ประโยชน์ได้จริง\n\nการจัดวางสิ่งของ ตำแหน่งสิ่งของ โดยใช้สามัญสำนึก\nก็ไม่มีประโยชน์อะไร ได้เรื่องความสวยงาม สบายใจ\n\nเมื่อพลังฮวงจุ้ยที่แท้จริง มันทำงาน สิ่งของต่างๆมันจะเข้าที่เข้าทางของมันเอง คนในบ้านมีความสุข สิ่งแวดล้อมในบ้านมันก็จะมีชีวิตชีวาตามเจ้าของบ้าน แต่ถ้าเรามีความทุกข์ ก็คงไม่อยากจะจัดเก็บอะไร ไม่มีกำลังบำรุงรักษา ปล่อยให้เสื่อมโทรม รกรุงรัง นั่นแสดงว่า ฮวงจุ้ยของบ้าน ยังไม่ดี ทุกอย่างมันจะเริ่มจากข้างใน เหมือนชีวิตคน ถ้าจิตใจดีมีความสุข หน้าตาก็จะผ่องใส เป็นเช่นนั้นครับ\n\nเครดิตผลงานของผม เป็นตัวชี้และยืนยันว่า สิ่งที่ผมกล่าวถึงเรื่องเกี่ยวกับฮวงจุ้ยทั้งหมด คือเรื่องจริง และเป็นความจริง\n",
+    		html: "<p>ปฐมบทการปรับฮวงจุ้ยบ้าน</p>\n<p>การข้ามเวลา ไปปรับฮวงจุ้ยบ้าน\nการแตกตัวบ้าน แล้วปรับฮวงจุ้ยบ้าน\nการชุบชีวิตบ้าน ฟื้นคืน แล้วปรับฮวงจุ้ยบ้าน\nฯลฯ</p>\n<p>ตำราเหล่านี้ เราอาจไม่เคยได้ยินได้รู้ (มันมีด้วยหรือ?)\nฮวงจุ้ยเป็นพลังที่เรามองไม่เห็น แต่สามารถกำหนดผลได้</p>\n<p>ฮวงจุ้ยที่เรารู้จักคือสิ่งที่เรามองเห็น นั่นเป็นเพียงแค่องค์ประกอบหนึ่งของฮวงจุ้ย ไม่สามารถนำไปใช้ประโยชน์อะไรได้ เพราะมันไม่ใช่จุดเริ่มต้นของพลังที่จะใช้ประโยชน์ได้จริง</p>\n<p>การจัดวางสิ่งของ ตำแหน่งสิ่งของ โดยใช้สามัญสำนึก\nก็ไม่มีประโยชน์อะไร ได้เรื่องความสวยงาม สบายใจ</p>\n<p>เมื่อพลังฮวงจุ้ยที่แท้จริง มันทำงาน สิ่งของต่างๆมันจะเข้าที่เข้าทางของมันเอง คนในบ้านมีความสุข สิ่งแวดล้อมในบ้านมันก็จะมีชีวิตชีวาตามเจ้าของบ้าน แต่ถ้าเรามีความทุกข์ ก็คงไม่อยากจะจัดเก็บอะไร ไม่มีกำลังบำรุงรักษา ปล่อยให้เสื่อมโทรม รกรุงรัง นั่นแสดงว่า ฮวงจุ้ยของบ้าน ยังไม่ดี ทุกอย่างมันจะเริ่มจากข้างใน เหมือนชีวิตคน ถ้าจิตใจดีมีความสุข หน้าตาก็จะผ่องใส เป็นเช่นนั้นครับ</p>\n<p>เครดิตผลงานของผม เป็นตัวชี้และยืนยันว่า สิ่งที่ผมกล่าวถึงเรื่องเกี่ยวกับฮวงจุ้ยทั้งหมด คือเรื่องจริง และเป็นความจริง</p>\n",
+    		images: [
+    			"post-img/6.jpg"
+    		]
+    	},
+    	{
+    		id: "7",
+    		title: "บ้านปลูกกลางน้ำ บ้านอยู่กลางลม ต้องระวัง",
+    		image: "post-img/7.jpg",
+    		md: "บ้านปลูกกลางน้ำ บ้านอยู่กลางลม ต้องระวัง\n\nสัปดาห์นี้ได้มีโอกาสดูภาพยนตร์ เรื่อง the upSide เป็น ภาพยนตร์ที่สร้างจากเรื่องจริง ในหนังเขากล่าวถึงมหาเศรษฐีชาวอเมริกันที่เป็นอัมพาต เคลื่อนไหวได้เพียงส่วนคอขึ้นไป\n\nภาพยนตร์เรื่องนี้ เป็นตัวอย่างหนึ่ง เกี่ยวกับ ฮวงจุ้ยที่อยู่อาศัยที่เป็นปัญหา แต่ก็ไม่ได้เป็นปัญหาไปหมดเสียทีเดียว\nนอกจากตัวเขาเองที่เป็นอัมพาต ภรรยาของเขาเอง ก็เป็นมะเร็ง และเสียชีวิตในช่วงที่เขาเป็นอัมพาต อีกด้วย\n\nครอบครัวนี้อาศัยอยู่ในอาคาร คอนโดมิเนียม Penthouse ลักษณะ เหมือนเป็นเจ้าของทั้งชั้น หมายความว่า ห้องที่เขาอาศัยอยู่ ล้อมรอบไปด้วยลมที่ปะทะกับตัวอาคารตลอดเวลา ยิ่งอยู่สูงลมยิ่งแรง พลังฮวงจุ้ยที่เกิดขึ้นก็ยิ่งแรง คล้ายๆกับลมจากทางสามแพร่งรอบทิศทาง ถ้าหากพลังฮวงจุ้ยไม่ได้รับการควบคุมก็จะเกิดพลังที่ดีอย่างมาก และพลังที่ร้ายอย่างมากพร้อมๆกันไปด้วย หมายความว่า #อยู่แล้วดีแต่มีปัญหา\n\nฮวงจุ้ย คือ ลมกับน้ำ ดังนั้น ที่อยู่อาศัยลักษณะคอนโดแบบนี้จะเกี่ยวข้องกับ อิทธิพลของแรงลม ยิ่งสูงลมยิ่งแรง พลังยิ่งมาก คนอยู่คอนโดถ้ารวยก็รวยจริงจัง แต่ถ้ามีปัญหาก็จะมีปัญหาจริงจังเหมือนกัน\n\nเหมือนคนที่ปลูกบ้านอยู่อาศัยกลางน้ำ ก็เป็นปัญหาเหมือนกัน อาจดีหรืออาจมีปัญหาที่รุนแรงได้เหมือนกัน เพราะน้ำจะเป็นตัวเสริมพลังฮวงจุ้ยให้รุนแรงขึ้น ทั้งทางดีและทางร้าย เหมือนกับลมนั่นเอง \"บ้านกลางน้ำ และบ้านกลางลม ต้องระวัง นะครับ\"\n\nสิ่งที่เกิดขึ้นกับชีวิต ทุกชีวิต เราหนีไม่พ้นพลังนี้ พลังฮวงจุ้ยมีทั้งส่วนพลังที่ดี และส่วนของพลังที่ทำร้ายมนุษย์\nเราร่ำรวยจากพลังนี้ได้ และเราก็มีปัญหาจากพลังนี้ได้ด้วยเหมือนกัน สิ่งที่เราเห็นกันเสมอ คนร่ำรวยมีคดีความ คนร่ำรวยป่วยเป็นมะเร็ง ป่วยเป็นอัมพฤกษ์อัมพาต คนร่ำรวยมีปัญหาครอบครัว สิ่งนี้นี่ละครับคือต้นตอ\n\nnote: มีองค์ประกอบอื่นที่ต้องพิจารณาร่วมเช่น ตำแหน่งที่อยู่ ที่นั่งที่นอนในอาคาร และพฤติกรรมของแต่ละคน ในการเลือกใช้ประตูหน้าต่าง ผลที่เกิดกับแต่ละคน ก็จะแตกต่างกัน\n",
+    		html: "<p>บ้านปลูกกลางน้ำ บ้านอยู่กลางลม ต้องระวัง</p>\n<p>สัปดาห์นี้ได้มีโอกาสดูภาพยนตร์ เรื่อง the upSide เป็น ภาพยนตร์ที่สร้างจากเรื่องจริง ในหนังเขากล่าวถึงมหาเศรษฐีชาวอเมริกันที่เป็นอัมพาต เคลื่อนไหวได้เพียงส่วนคอขึ้นไป</p>\n<p>ภาพยนตร์เรื่องนี้ เป็นตัวอย่างหนึ่ง เกี่ยวกับ ฮวงจุ้ยที่อยู่อาศัยที่เป็นปัญหา แต่ก็ไม่ได้เป็นปัญหาไปหมดเสียทีเดียว\nนอกจากตัวเขาเองที่เป็นอัมพาต ภรรยาของเขาเอง ก็เป็นมะเร็ง และเสียชีวิตในช่วงที่เขาเป็นอัมพาต อีกด้วย</p>\n<p>ครอบครัวนี้อาศัยอยู่ในอาคาร คอนโดมิเนียม Penthouse ลักษณะ เหมือนเป็นเจ้าของทั้งชั้น หมายความว่า ห้องที่เขาอาศัยอยู่ ล้อมรอบไปด้วยลมที่ปะทะกับตัวอาคารตลอดเวลา ยิ่งอยู่สูงลมยิ่งแรง พลังฮวงจุ้ยที่เกิดขึ้นก็ยิ่งแรง คล้ายๆกับลมจากทางสามแพร่งรอบทิศทาง ถ้าหากพลังฮวงจุ้ยไม่ได้รับการควบคุมก็จะเกิดพลังที่ดีอย่างมาก และพลังที่ร้ายอย่างมากพร้อมๆกันไปด้วย หมายความว่า #อยู่แล้วดีแต่มีปัญหา</p>\n<p>ฮวงจุ้ย คือ ลมกับน้ำ ดังนั้น ที่อยู่อาศัยลักษณะคอนโดแบบนี้จะเกี่ยวข้องกับ อิทธิพลของแรงลม ยิ่งสูงลมยิ่งแรง พลังยิ่งมาก คนอยู่คอนโดถ้ารวยก็รวยจริงจัง แต่ถ้ามีปัญหาก็จะมีปัญหาจริงจังเหมือนกัน</p>\n<p>เหมือนคนที่ปลูกบ้านอยู่อาศัยกลางน้ำ ก็เป็นปัญหาเหมือนกัน อาจดีหรืออาจมีปัญหาที่รุนแรงได้เหมือนกัน เพราะน้ำจะเป็นตัวเสริมพลังฮวงจุ้ยให้รุนแรงขึ้น ทั้งทางดีและทางร้าย เหมือนกับลมนั่นเอง &quot;บ้านกลางน้ำ และบ้านกลางลม ต้องระวัง นะครับ&quot;</p>\n<p>สิ่งที่เกิดขึ้นกับชีวิต ทุกชีวิต เราหนีไม่พ้นพลังนี้ พลังฮวงจุ้ยมีทั้งส่วนพลังที่ดี และส่วนของพลังที่ทำร้ายมนุษย์\nเราร่ำรวยจากพลังนี้ได้ และเราก็มีปัญหาจากพลังนี้ได้ด้วยเหมือนกัน สิ่งที่เราเห็นกันเสมอ คนร่ำรวยมีคดีความ คนร่ำรวยป่วยเป็นมะเร็ง ป่วยเป็นอัมพฤกษ์อัมพาต คนร่ำรวยมีปัญหาครอบครัว สิ่งนี้นี่ละครับคือต้นตอ</p>\n<p>note: มีองค์ประกอบอื่นที่ต้องพิจารณาร่วมเช่น ตำแหน่งที่อยู่ ที่นั่งที่นอนในอาคาร และพฤติกรรมของแต่ละคน ในการเลือกใช้ประตูหน้าต่าง ผลที่เกิดกับแต่ละคน ก็จะแตกต่างกัน</p>\n",
+    		images: [
+    			"post-img/7.jpg"
+    		]
+    	},
+    	{
+    		id: "8",
+    		title: "การปรับฮวงจุ้ยบ้าน มีหลายรูปแบบมาก จนคุณคิดไม่ถึง",
+    		image: "post-img/8.jpg",
+    		md: "การปรับฮวงจุ้ยบ้าน มีหลายรูปแบบมาก จนคุณคิดไม่ถึง\n\nบ้านบางหลังมีลักษณะที่พิเศษ มีลักษณะเป็นบ้านซ้อนกัน คือบ้านที่มีหลายทิศ แต่อยู่ในบ้านเดียวกัน หรือบ้านมีทิศเดียวกัน แต่มีคุณสมบัติบ้านที่แตกต่างกันมีอยู่ในบ้านหลังเดียวกัน\n\nมันมีความสำคัญมากในการเริ่มต้นที่จะพิจารณาวิเคราะห์วินิจฉัยในการที่จะปรับฮวงจุ้ยบ้านหลังนั้น\nถ้าตรงนี้ไม่เข้าใจดูไม่ออก สิ่งที่ทำต่อไปก็จะไม่เกิดประโยชน์อะไร บ้านแบบนี้จะไม่สามารถอ้างอิงจากตำราเพียงอย่างเดียวได้เลย\n\ncomment ด้านล่างเป็นตัวอย่างการปรับฮวงจุ้ยบ้านอีกหนึ่งตัวอย่าง จะสังเกตเห็นได้ว่า ในบ้านทุกหลัง ที่แนะนำให้ปรับแก้ไข ผมไม่ได้ให้ความสำคัญเกี่ยวกับ ดวงชะตาหรือสิ่งศักดิ์สิทธิ์ใดๆ และไม่ได้พูดถึงสิ่งที่คุณเข้าใจว่าฮวงจุ้ยคือสิ่งที่คุณคิด ซึ่งมันไม่สามารถหาได้ในตำราทั่วไป หรือร่ำเรียนมาจากที่ไหนได้เลยครับ\n\nตัวอย่างนี้เพื่อเป็นแนวทาง และเป็นกำลังใจให้สำหรับคนที่กำลังที่ปรับแก้ไขฮวงจุ้ยอยู่ครับ\n",
+    		html: "<p>การปรับฮวงจุ้ยบ้าน มีหลายรูปแบบมาก จนคุณคิดไม่ถึง</p>\n<p>บ้านบางหลังมีลักษณะที่พิเศษ มีลักษณะเป็นบ้านซ้อนกัน คือบ้านที่มีหลายทิศ แต่อยู่ในบ้านเดียวกัน หรือบ้านมีทิศเดียวกัน แต่มีคุณสมบัติบ้านที่แตกต่างกันมีอยู่ในบ้านหลังเดียวกัน</p>\n<p>มันมีความสำคัญมากในการเริ่มต้นที่จะพิจารณาวิเคราะห์วินิจฉัยในการที่จะปรับฮวงจุ้ยบ้านหลังนั้น\nถ้าตรงนี้ไม่เข้าใจดูไม่ออก สิ่งที่ทำต่อไปก็จะไม่เกิดประโยชน์อะไร บ้านแบบนี้จะไม่สามารถอ้างอิงจากตำราเพียงอย่างเดียวได้เลย</p>\n<p>comment ด้านล่างเป็นตัวอย่างการปรับฮวงจุ้ยบ้านอีกหนึ่งตัวอย่าง จะสังเกตเห็นได้ว่า ในบ้านทุกหลัง ที่แนะนำให้ปรับแก้ไข ผมไม่ได้ให้ความสำคัญเกี่ยวกับ ดวงชะตาหรือสิ่งศักดิ์สิทธิ์ใดๆ และไม่ได้พูดถึงสิ่งที่คุณเข้าใจว่าฮวงจุ้ยคือสิ่งที่คุณคิด ซึ่งมันไม่สามารถหาได้ในตำราทั่วไป หรือร่ำเรียนมาจากที่ไหนได้เลยครับ</p>\n<p>ตัวอย่างนี้เพื่อเป็นแนวทาง และเป็นกำลังใจให้สำหรับคนที่กำลังที่ปรับแก้ไขฮวงจุ้ยอยู่ครับ</p>\n",
+    		images: [
+    			"post-img/8.jpg"
+    		]
+    	},
+    	{
+    		id: "9",
+    		title: "ซื้อบ้านร้าง มาปรับปรุงใหม่เพื่ออยู่อาศัย จะได้มั้ย?",
+    		image: "post-img/9.jpg",
+    		md: "ซื้อบ้านร้าง มาปรับปรุงใหม่เพื่ออยู่อาศัย จะได้มั้ย?\n\nเป็นเรื่องที่ต้องระวังอย่างมากนะครับ บ้านประเภทนี้มีประวัติ และมีสาเหตุที่ทำให้บ้านเป็นแบบนี้ บ้านลักษณะนี้เป็นบ้านที่ทำร้ายคน ใครมาอยู่ก็จะเป็นปัญหาทุกคน\n\nแต่หากจะซื้อมาปรับปรุง ก็สามารถทำได้ ถ้าเรารู้วิธีควบคุมบ้านได้ ก็จะเป็นโอกาสดีที่ได้ซื้อบ้านราคาถูก\n\nแต่ในนาทีนี้ ยังไม่เห็นใคร มีเพียงผมเท่านั้นที่รู้วิธี (ยืนยัน)\nดังนั้น ถ้าจะซื้อบ้านประเภทนี้ ควรได้รับคำแนะนำกำกับให้ แล้วจะปลอดภัยครับ และทั้งเรายังสามารถเปลี่ยนให้เป็นบ้านที่ดี ส่งเสริมผู้ที่อยู่อาศัยให้มีความเจริญรุ่งเรืองได้อีกด้วย\n\nnote: บ้านเก่าที่นิยมซื้อจากบังคับคดีแล้วมาปรับปรุงให้สวยเพื่อขายต่อ ก็อยู่ในข่ายที่ต้องระวังด้วยนะครับ\n",
+    		html: "<p>ซื้อบ้านร้าง มาปรับปรุงใหม่เพื่ออยู่อาศัย จะได้มั้ย?</p>\n<p>เป็นเรื่องที่ต้องระวังอย่างมากนะครับ บ้านประเภทนี้มีประวัติ และมีสาเหตุที่ทำให้บ้านเป็นแบบนี้ บ้านลักษณะนี้เป็นบ้านที่ทำร้ายคน ใครมาอยู่ก็จะเป็นปัญหาทุกคน</p>\n<p>แต่หากจะซื้อมาปรับปรุง ก็สามารถทำได้ ถ้าเรารู้วิธีควบคุมบ้านได้ ก็จะเป็นโอกาสดีที่ได้ซื้อบ้านราคาถูก</p>\n<p>แต่ในนาทีนี้ ยังไม่เห็นใคร มีเพียงผมเท่านั้นที่รู้วิธี (ยืนยัน)\nดังนั้น ถ้าจะซื้อบ้านประเภทนี้ ควรได้รับคำแนะนำกำกับให้ แล้วจะปลอดภัยครับ และทั้งเรายังสามารถเปลี่ยนให้เป็นบ้านที่ดี ส่งเสริมผู้ที่อยู่อาศัยให้มีความเจริญรุ่งเรืองได้อีกด้วย</p>\n<p>note: บ้านเก่าที่นิยมซื้อจากบังคับคดีแล้วมาปรับปรุงให้สวยเพื่อขายต่อ ก็อยู่ในข่ายที่ต้องระวังด้วยนะครับ</p>\n",
+    		images: [
+    			"post-img/9.jpg"
+    		]
+    	},
+    	{
+    		id: "10",
+    		title: "ปัญหาทั้งมวลของมนุษย์โลก มันเกิดมาจากบ้านที่เราอยู่อาศัย",
+    		image: "post-img/10.jpg",
+    		md: "ปัญหาทั้งมวลของมนุษย์โลก มันเกิดมาจากบ้านที่เราอยู่อาศัย\n\nบ้านมีพลังควบคุมความเป็นไปของทุกชีวิตในโลกนี้ ถ้าเราควบคุมพลังของบ้านได้ ความขัดแย้งของมนุษย์จะน้อยลง คนจะเข้าโรงพยาบาลน้อยลง คนจะขึ้นโรงขึ้นศาลน้อยลง คนจะหาที่พึ่งทางใจน้อยลง อุบัติเหตุบนท้องถนนก็จะน้อยลง ฯลฯ ทุกคนจะมีแต่ความสุข\n\nผมรู้วิธี แต่จะให้ทุกคนรู้วิธี มันเป็นเรื่องที่เป็นไปไม่ได้\nคนที่ได้รู้วิธีแล้ว ก็จะหลุดพ้นจากความทุกข์ทั้งกายทั้งใจได้ และจะมีความสุขกับชีวิตได้ตลอดไป\n\nตัวอย่างด้านล่าง เป็นเรื่องที่พิสูจน์ว่า เราไม่สามารถควบคุมตัวเราเองได้ สิ่งที่เกิดกับเราในทุกเรื่องมันมีที่มา และแก้ไขได้ทั้งหมด\n\nnote: รูปด้านล่างนี้ บ้านใครที่ทาสีโทนนี้ หรือสีแดง ส้ม ม่วง ชมพู ทั้งหลัง ภายในบ้าน นอกบ้าน จะทำให้มีปัญหาชีวิต ปัญหาสุขภาพ ถ้ารู้สึกว่ามีปัญหา อย่างแรก ควรเปลี่ยนสี ให้เป็นสีโทนขาว ขาวควันบุหรี่ ก็จะทุเลาปัญหาลงได้ครับ\n\nเครดิตผลงาน\nhttps://m.facebook.com/story.php?story_fbid=109203807115719&id=106378317398268\n\nติดต่อสอบถาม\ninbox ส่งข้อความ หรือ tel/line : 0847550825\n",
+    		html: "<p>ปัญหาทั้งมวลของมนุษย์โลก มันเกิดมาจากบ้านที่เราอยู่อาศัย</p>\n<p>บ้านมีพลังควบคุมความเป็นไปของทุกชีวิตในโลกนี้ ถ้าเราควบคุมพลังของบ้านได้ ความขัดแย้งของมนุษย์จะน้อยลง คนจะเข้าโรงพยาบาลน้อยลง คนจะขึ้นโรงขึ้นศาลน้อยลง คนจะหาที่พึ่งทางใจน้อยลง อุบัติเหตุบนท้องถนนก็จะน้อยลง ฯลฯ ทุกคนจะมีแต่ความสุข</p>\n<p>ผมรู้วิธี แต่จะให้ทุกคนรู้วิธี มันเป็นเรื่องที่เป็นไปไม่ได้\nคนที่ได้รู้วิธีแล้ว ก็จะหลุดพ้นจากความทุกข์ทั้งกายทั้งใจได้ และจะมีความสุขกับชีวิตได้ตลอดไป</p>\n<p>ตัวอย่างด้านล่าง เป็นเรื่องที่พิสูจน์ว่า เราไม่สามารถควบคุมตัวเราเองได้ สิ่งที่เกิดกับเราในทุกเรื่องมันมีที่มา และแก้ไขได้ทั้งหมด</p>\n<p>note: รูปด้านล่างนี้ บ้านใครที่ทาสีโทนนี้ หรือสีแดง ส้ม ม่วง ชมพู ทั้งหลัง ภายในบ้าน นอกบ้าน จะทำให้มีปัญหาชีวิต ปัญหาสุขภาพ ถ้ารู้สึกว่ามีปัญหา อย่างแรก ควรเปลี่ยนสี ให้เป็นสีโทนขาว ขาวควันบุหรี่ ก็จะทุเลาปัญหาลงได้ครับ</p>\n<p>เครดิตผลงาน\nhttps://m.facebook.com/story.php?story_fbid=109203807115719&amp;id=106378317398268</p>\n<p>ติดต่อสอบถาม\ninbox ส่งข้อความ หรือ tel/line : 0847550825</p>\n",
+    		images: [
+    			"post-img/10.jpg"
+    		]
+    	},
+    	{
+    		id: "11",
+    		title: "การสร้างอาคารหรือบ้านที่มีขนาดใหญ่การเลือกซื้อบ้านที่มีขนาดใ...",
+    		image: "post-img/11.jpg",
+    		md: "การสร้างอาคารหรือบ้านที่มีขนาดใหญ่\nการเลือกซื้อบ้านที่มีขนาดใหญ่\n\nสิ่งที่ต้องพิจารณาอย่างแรกคืออายุของอาคาร ว่าอาคารนั้นจะมีพลังที่ดีส่งเสริมเราไปได้กี่ปี ?\n\nการลงทุนกับอาคารที่มีขนาดใหญ่ก็ย่อมต้องการให้อยู่กับเราตราบชั่วฟ้าดินสลาย ด้วยมูลค่าที่สูง แต่ก็ไม่ใช่เป็นสิ่งที่จะเป็นไปตามคาดหวังได้เสมอไป\n\nอาคารทุกหลังในโลกนี้มีอายุ มีช่วงเวลาให้ความเจริญรุ่งเรืองที่จำกัด อาคารบางหลัง มีอายุแค่ 5 ปี บางหลังได้ถึง 65 ปี และอาคารบางหลังก็หมดอายุตั้งแต่สร้างเสร็จ\n\nหากเรารู้แต่เริ่ม ตั้งแต่การวางผังอาคาร ก็จะสามารถกำหนดอายุของอาคารได้ ตามที่เราต้องการ\n",
+    		html: "<p>การสร้างอาคารหรือบ้านที่มีขนาดใหญ่\nการเลือกซื้อบ้านที่มีขนาดใหญ่</p>\n<p>สิ่งที่ต้องพิจารณาอย่างแรกคืออายุของอาคาร ว่าอาคารนั้นจะมีพลังที่ดีส่งเสริมเราไปได้กี่ปี ?</p>\n<p>การลงทุนกับอาคารที่มีขนาดใหญ่ก็ย่อมต้องการให้อยู่กับเราตราบชั่วฟ้าดินสลาย ด้วยมูลค่าที่สูง แต่ก็ไม่ใช่เป็นสิ่งที่จะเป็นไปตามคาดหวังได้เสมอไป</p>\n<p>อาคารทุกหลังในโลกนี้มีอายุ มีช่วงเวลาให้ความเจริญรุ่งเรืองที่จำกัด อาคารบางหลัง มีอายุแค่ 5 ปี บางหลังได้ถึง 65 ปี และอาคารบางหลังก็หมดอายุตั้งแต่สร้างเสร็จ</p>\n<p>หากเรารู้แต่เริ่ม ตั้งแต่การวางผังอาคาร ก็จะสามารถกำหนดอายุของอาคารได้ ตามที่เราต้องการ</p>\n",
+    		images: [
+    			"post-img/11.jpg"
+    		]
+    	},
+    	{
+    		id: "12",
+    		title: "การสังเกตุ ว่าบ้านที่เราอยู่อาศัย มีปัญหาหรือไม่",
+    		image: "post-img/12.jpg",
+    		md: "การสังเกตุ ว่าบ้านที่เราอยู่อาศัย มีปัญหาหรือไม่\n\nมีอยู่ 3 ช่วงระยะเวลา ที่เรารู้สึกได้เมื่อย้ายเข้าอยู่บ้านใหม่\n\nในช่วง1 ปีแรก เมื่อย้ายเข้ามาอยู่แต่รู้สึกว่าผิดปกติ ยอดค้าขายที่ลดลง คนในบ้านเริ่มมีปากเสียง\nในช่วงนี้การปรับแก้ไข จะสามารถฟื้นตัวได้เร็ว ภายใน 1 ถึง 3 เดือน\n\nในช่วงที่ 2 2-3 ปีต่อมา เริ่มเป็นปัญหา การเงินเริ่มติดขัด ลูกค้าหนีหาย ลงไปเรื่อยๆ ความสัมพันธ์ในบ้าน ไม่นิ่ง\nในช่วงนี้การปรับแก้ไข ยังจะสามารถฟื้นตัวได้เร็ว ภายใน 1-3 เดือน\n\nในช่วงที่ 3 เข้าปีที่ 4 -5 เริ่มมีอาการแย่หนัก การเงินแทบจะกู่ไม่กลับ สายป่านเริ่มขาด เริ่มมีอาการปัญหาทางสุขภาพ และปัญหาครอบครัว ซ้ำเติม ร่วมด้วย\nถ้าดำเนินมาถึง ช่วงนี้ การปรับแก้ไขต้องใช้เวลา ที่จะฟื้นตัวได้ช้ากว่าปกติ ภายใน 1 ถึง 3 เดือนหรือช้ากว่านั้น บางคนต้องรอฟื้นร่วมปี เพราะต้องรอปรับเคลียร์ปัญหาเดิม และรอโอกาสใหม่ใหม่ พร้อมกำลังที่สะสมเพิ่มขึ้น\n\nไม่ว่าจะอยู่ช่วงไหน ถ้ารู้สึกไม่ดีกับชีวิต ให้รีบแก้ไข อย่าปล่อยทิ้งไว้ เพื่อยุติความสูญเสีย ความเสียหาย ที่ประเมินค่าไม่ได้ ไม่ให้มันเกิดขึ้นอีกต่อไป\n\nnot: การที่จะฟื้นตัวแก้ปัญหา มีส่วนประกอบอื่นร่วมด้วย เช่นโครงสร้างของบ้าน แต่ละหลัง ที่มีพลังไม่เท่ากัน และความทุ่มเทในการแก้ปัญหามากน้อย ที่ไม่เท่ากัน\n\ncomment ด้านล่างเป็นตัวอย่างแนวทาง และเป็นกำลังใจให้สำหรับผู้ที่กำลังปรับแก้ไขบ้านอยู่\n",
+    		html: "<p>การสังเกตุ ว่าบ้านที่เราอยู่อาศัย มีปัญหาหรือไม่</p>\n<p>มีอยู่ 3 ช่วงระยะเวลา ที่เรารู้สึกได้เมื่อย้ายเข้าอยู่บ้านใหม่</p>\n<p>ในช่วง1 ปีแรก เมื่อย้ายเข้ามาอยู่แต่รู้สึกว่าผิดปกติ ยอดค้าขายที่ลดลง คนในบ้านเริ่มมีปากเสียง\nในช่วงนี้การปรับแก้ไข จะสามารถฟื้นตัวได้เร็ว ภายใน 1 ถึง 3 เดือน</p>\n<p>ในช่วงที่ 2 2-3 ปีต่อมา เริ่มเป็นปัญหา การเงินเริ่มติดขัด ลูกค้าหนีหาย ลงไปเรื่อยๆ ความสัมพันธ์ในบ้าน ไม่นิ่ง\nในช่วงนี้การปรับแก้ไข ยังจะสามารถฟื้นตัวได้เร็ว ภายใน 1-3 เดือน</p>\n<p>ในช่วงที่ 3 เข้าปีที่ 4 -5 เริ่มมีอาการแย่หนัก การเงินแทบจะกู่ไม่กลับ สายป่านเริ่มขาด เริ่มมีอาการปัญหาทางสุขภาพ และปัญหาครอบครัว ซ้ำเติม ร่วมด้วย\nถ้าดำเนินมาถึง ช่วงนี้ การปรับแก้ไขต้องใช้เวลา ที่จะฟื้นตัวได้ช้ากว่าปกติ ภายใน 1 ถึง 3 เดือนหรือช้ากว่านั้น บางคนต้องรอฟื้นร่วมปี เพราะต้องรอปรับเคลียร์ปัญหาเดิม และรอโอกาสใหม่ใหม่ พร้อมกำลังที่สะสมเพิ่มขึ้น</p>\n<p>ไม่ว่าจะอยู่ช่วงไหน ถ้ารู้สึกไม่ดีกับชีวิต ให้รีบแก้ไข อย่าปล่อยทิ้งไว้ เพื่อยุติความสูญเสีย ความเสียหาย ที่ประเมินค่าไม่ได้ ไม่ให้มันเกิดขึ้นอีกต่อไป</p>\n<p>not: การที่จะฟื้นตัวแก้ปัญหา มีส่วนประกอบอื่นร่วมด้วย เช่นโครงสร้างของบ้าน แต่ละหลัง ที่มีพลังไม่เท่ากัน และความทุ่มเทในการแก้ปัญหามากน้อย ที่ไม่เท่ากัน</p>\n<p>comment ด้านล่างเป็นตัวอย่างแนวทาง และเป็นกำลังใจให้สำหรับผู้ที่กำลังปรับแก้ไขบ้านอยู่</p>\n",
+    		images: [
+    			"post-img/12.jpg"
+    		]
+    	},
+    	{
+    		id: "13",
+    		title: "ตัวอย่างแนวทางการปรับฮวงจุ้ยห้องคอนโด",
+    		image: "post-img/13.jpg",
+    		md: "ตัวอย่างแนวทางการปรับฮวงจุ้ยห้องคอนโด\n\nการปรับฮวงจุ้ยคอนโด บทที่จะง่ายมันก็จะง่าย\nบทที่ยากมันก็ยาก สรุปโดยรวมคือ ในเบื้องต้น รูปแบบของการปรับฮวงจุ้ยคอนโดจะเป็นแบบไหน จะรู้ได้ก็จนกว่าจะได้เห็นรายละเอียดของตัวห้อง ก็จะมีคำตอบให้ได้ว่าจะปรับแก้ไขได้แค่ไหน อย่างไร\n\nถ้าอยู่คอนโดแล้วรู้สึกมีปัญหา ก็ควรที่จะรีบตรวจสอบ เพื่อหาทางแก้ไข ถ้าปรับแก้ไขไม่ได้อย่างไร จะได้มองหาหนทางอื่น ที่จะหลีกเลี่ยงปัญหาที่เกิดขึ้น ดีกว่า ต้องทนอยู่กับปัญหา\nเพราะบางที มันก็สามารถแก้ไขได้แบบง่ายๆ ตามตัวอย่างด้านล่างนี้ครับ\n",
+    		html: "<p>ตัวอย่างแนวทางการปรับฮวงจุ้ยห้องคอนโด</p>\n<p>การปรับฮวงจุ้ยคอนโด บทที่จะง่ายมันก็จะง่าย\nบทที่ยากมันก็ยาก สรุปโดยรวมคือ ในเบื้องต้น รูปแบบของการปรับฮวงจุ้ยคอนโดจะเป็นแบบไหน จะรู้ได้ก็จนกว่าจะได้เห็นรายละเอียดของตัวห้อง ก็จะมีคำตอบให้ได้ว่าจะปรับแก้ไขได้แค่ไหน อย่างไร</p>\n<p>ถ้าอยู่คอนโดแล้วรู้สึกมีปัญหา ก็ควรที่จะรีบตรวจสอบ เพื่อหาทางแก้ไข ถ้าปรับแก้ไขไม่ได้อย่างไร จะได้มองหาหนทางอื่น ที่จะหลีกเลี่ยงปัญหาที่เกิดขึ้น ดีกว่า ต้องทนอยู่กับปัญหา\nเพราะบางที มันก็สามารถแก้ไขได้แบบง่ายๆ ตามตัวอย่างด้านล่างนี้ครับ</p>\n",
+    		images: [
+    			"post-img/13.jpg"
+    		]
+    	},
+    	{
+    		id: "14",
+    		title: "ลักษณะบ้านที่ดี ที่ทำให้คนอยู่มีโอกาสเป็นเศรษฐีได้",
+    		image: "post-img/14.jpg",
+    		md: "ลักษณะบ้านที่ดี ที่ทำให้คนอยู่มีโอกาสเป็นเศรษฐีได้\n\nบ้านทางสามแพร่ง คือบ้านแบบหนึ่งในลักษณะของบ้านที่ ทำให้คนร่ำรวย และมีความมั่งคั่งได้\n\nบ้านทางสามแพร่งเป็นบ้านที่อันตราย เนื่องจาก มันอยู่ในตำแหน่งทางผ่านของลม ลมเป็นหัวใจหลักของการทำฮวงจุ้ยบ้าน\nบ้านลักษณะทางสามแพร่งนี้จะมีพลังมากกว่าบ้านปกติทั่วไปมันมีพลังที่มากทั้งทางด้านที่ดี ที่ส่งเสริมความมั่งคั่ง ความร่ำรวย และในทางที่ร้าย มันก็สามารถส่งผลความหายนะให้กับเจ้าของบ้านได้อย่างรวดเร็วและรุนแรงได้ด้วยเหมือนกัน\n\nใครที่มีบ้านลักษณะนี้ ผมมีวิธี ที่จะจัดการควบคุมพลังบ้าน ให้ส่งเสริมผู้อยู่อาศัยให้มีความเจริญรุ่งเรื่อง และทำให้มันเป็นบ้านที่ดีได้\n\nเราสามารถพลิกจาก ความโชคร้าย เป็นความโชคดีได้ ถ้าเรารู้วิธี\n",
+    		html: "<p>ลักษณะบ้านที่ดี ที่ทำให้คนอยู่มีโอกาสเป็นเศรษฐีได้</p>\n<p>บ้านทางสามแพร่ง คือบ้านแบบหนึ่งในลักษณะของบ้านที่ ทำให้คนร่ำรวย และมีความมั่งคั่งได้</p>\n<p>บ้านทางสามแพร่งเป็นบ้านที่อันตราย เนื่องจาก มันอยู่ในตำแหน่งทางผ่านของลม ลมเป็นหัวใจหลักของการทำฮวงจุ้ยบ้าน\nบ้านลักษณะทางสามแพร่งนี้จะมีพลังมากกว่าบ้านปกติทั่วไปมันมีพลังที่มากทั้งทางด้านที่ดี ที่ส่งเสริมความมั่งคั่ง ความร่ำรวย และในทางที่ร้าย มันก็สามารถส่งผลความหายนะให้กับเจ้าของบ้านได้อย่างรวดเร็วและรุนแรงได้ด้วยเหมือนกัน</p>\n<p>ใครที่มีบ้านลักษณะนี้ ผมมีวิธี ที่จะจัดการควบคุมพลังบ้าน ให้ส่งเสริมผู้อยู่อาศัยให้มีความเจริญรุ่งเรื่อง และทำให้มันเป็นบ้านที่ดีได้</p>\n<p>เราสามารถพลิกจาก ความโชคร้าย เป็นความโชคดีได้ ถ้าเรารู้วิธี</p>\n",
+    		images: [
+    			"post-img/14.jpg"
+    		]
+    	},
+    	{
+    		id: "15",
+    		title: "มีเรื่องที่อยากให้ตระหนัก",
+    		image: "post-img/15.jpg",
+    		md: "มีเรื่องที่อยากให้ตระหนัก\n\nมีหลายคนที่เข้าใจ ถึงความคุ้มค่าในการปรับฮวงจุ้ย ในแบบที่ไร้ประโยชน์ ที่ไม่เกิดประโยชน์ และเป็นภาระ\n\nบางคนชอบที่จ่ายเงินไปแล้วต้องได้คำแนะนำมากๆ รู้สึกมันคุ้มค่าดี หรือต้องถามให้มันมากๆ จึงจะรู้สึกว่ามันคุ้ม\n\nผลร้ายก็จะตกอยู่ที่เราเองนั่นแหละครับ คนบอกคนแนะนำเขาไม่เหนื่อยหรอกครับ แต่คนที่เอาไปทำ และเอาไปปฏิบัตินี่สิ มันเหนื่อย และมันจะมีค่าใช้จ่ายเพิ่มขึ้นไปอีกโดยที่ไม่มีความจำเป็นเลย มันคือความคิดที่ผิดเพี้ยน\n\n\"ความคุ้มค่าของการปรับฮวงจุ้ยมันอยู่ที่ผลที่ได้หลังการปรับบ้านแล้ว ยิ่งทำน้อยอย่าง ยิ่งดีนะครับ\"\n\nไม่ใช่สั่งทำปรับแก้ กันมากมาย มีเงื่อนไขมากมาย เยอะเรื่อง\nแต่ทำไปแล้ว ไม่มีผลอะไรเกิดขึ้นเลย มันน่าช้ำใจครับ\n\ncomment ด้านล่าง คือตัวอย่างของผลที่ได้มาจากการปรับบ้าน มันต้องได้อย่างนี้ครับ เพื่อเป็นกำลังใจ สำหรับคนที่ทำ และคนที่กำลังจะทำ\n\nnote: และนี่ก็เป็นอีกตัวอย่างหนึ่งที่แสดงให้เห็นว่าการปรับฮวงจุ้ยที่บ้านเราอยู่อาศัย ก็สามารถส่งผลสะเทือนทะลุทะลวงไปยังร้านค้าของเราที่อยู่อีกฟากฝั่งของโลกได้ด้วย เหมือนที่ผมเคยบอกไว้ว่า ให้ความสำคัญที่อยู่อาศัยเป็นอันดับแรก มันน่าอัศจรรย์ใช่มั้ยครับ?\n",
+    		html: "<p>มีเรื่องที่อยากให้ตระหนัก</p>\n<p>มีหลายคนที่เข้าใจ ถึงความคุ้มค่าในการปรับฮวงจุ้ย ในแบบที่ไร้ประโยชน์ ที่ไม่เกิดประโยชน์ และเป็นภาระ</p>\n<p>บางคนชอบที่จ่ายเงินไปแล้วต้องได้คำแนะนำมากๆ รู้สึกมันคุ้มค่าดี หรือต้องถามให้มันมากๆ จึงจะรู้สึกว่ามันคุ้ม</p>\n<p>ผลร้ายก็จะตกอยู่ที่เราเองนั่นแหละครับ คนบอกคนแนะนำเขาไม่เหนื่อยหรอกครับ แต่คนที่เอาไปทำ และเอาไปปฏิบัตินี่สิ มันเหนื่อย และมันจะมีค่าใช้จ่ายเพิ่มขึ้นไปอีกโดยที่ไม่มีความจำเป็นเลย มันคือความคิดที่ผิดเพี้ยน</p>\n<p>&quot;ความคุ้มค่าของการปรับฮวงจุ้ยมันอยู่ที่ผลที่ได้หลังการปรับบ้านแล้ว ยิ่งทำน้อยอย่าง ยิ่งดีนะครับ&quot;</p>\n<p>ไม่ใช่สั่งทำปรับแก้ กันมากมาย มีเงื่อนไขมากมาย เยอะเรื่อง\nแต่ทำไปแล้ว ไม่มีผลอะไรเกิดขึ้นเลย มันน่าช้ำใจครับ</p>\n<p>comment ด้านล่าง คือตัวอย่างของผลที่ได้มาจากการปรับบ้าน มันต้องได้อย่างนี้ครับ เพื่อเป็นกำลังใจ สำหรับคนที่ทำ และคนที่กำลังจะทำ</p>\n<p>note: และนี่ก็เป็นอีกตัวอย่างหนึ่งที่แสดงให้เห็นว่าการปรับฮวงจุ้ยที่บ้านเราอยู่อาศัย ก็สามารถส่งผลสะเทือนทะลุทะลวงไปยังร้านค้าของเราที่อยู่อีกฟากฝั่งของโลกได้ด้วย เหมือนที่ผมเคยบอกไว้ว่า ให้ความสำคัญที่อยู่อาศัยเป็นอันดับแรก มันน่าอัศจรรย์ใช่มั้ยครับ?</p>\n",
+    		images: [
+    			"post-img/15.jpg"
+    		]
+    	}
+    ];
 
     var lodash = createCommonjsModule(function (module, exports) {
     (function() {
@@ -24929,9 +26739,54 @@ var app = (function () {
     }.call(commonjsGlobal));
     });
 
+    const idx2showcase = idx => `showcase/${idx}.webp`;
+
+    function createModalData() {
+      const { subscribe, set, update } = writable(null);
+      const getPost = idx =>
+        lodash.inRange(idx, db.length)
+          ? {
+              type: 'post',
+              idx,
+              curr: lodash.get(db, idx, null),
+              prev: lodash.get(db, idx - 1, null),
+              next: lodash.get(db, idx + 1, null)
+            }
+          : null;
+      const getImage = idx =>
+        lodash.inRange(idx, 14)
+          ? {
+              type: 'img',
+              idx,
+              curr: idx2showcase(idx),
+              next: idx2showcase(idx + 1),
+              prev: idx2showcase(idx - 1)
+            }
+          : null;
+
+      return {
+        subscribe,
+        reset: () => set(null),
+        setPost: idx => set(getPost(idx)),
+        setImage: idx => set(getImage(idx)),
+        goNext: () => update(n => (n ? (n.type == 'post' ? getPost : getImage)(n.idx + 1) : null)),
+        goPrev: () => update(n => (n ? (n.type == 'post' ? getPost : getImage)(n.idx - 1) : null))
+      };
+    }
+
+    const posts = readable(db);
+    const modalData = createModalData();
+
     /* src/views/Slide3.svelte generated by Svelte v3.9.1 */
 
-    const file$3 = "src/views/Slide3.svelte";
+    const file$5 = "src/views/Slide3.svelte";
+
+    function get_each_context_1(ctx, list, i) {
+    	const child_ctx = Object.create(ctx);
+    	child_ctx.post = list[i];
+    	child_ctx.num = i;
+    	return child_ctx;
+    }
 
     function get_each_context(ctx, list, i) {
     	const child_ctx = Object.create(ctx);
@@ -24939,169 +26794,424 @@ var app = (function () {
     	return child_ctx;
     }
 
-    // (34:0) {#if visible}
-    function create_if_block$2(ctx) {
-    	var section, div2, div0, h1, div0_intro, t1, br0, t2, div1, t3, br1, t4, br2;
+    // (115:2) {#if visible}
+    function create_if_block$4(ctx) {
+    	var div1, div0, span0, t1, span1, t3, span2, t5, br0, t6, br1, t7, current_block_type_index, if_block, t8, br2, t9, br3, current, dispose;
 
-    	var each_value = lodash.range(1, 13);
+    	var if_block_creators = [
+    		create_if_block_1$1,
+    		create_else_block$1
+    	];
 
-    	var each_blocks = [];
+    	var if_blocks = [];
 
-    	for (var i = 0; i < each_value.length; i += 1) {
-    		each_blocks[i] = create_each_block(get_each_context(ctx, each_value, i));
+    	function select_block_type(changed, ctx) {
+    		if (ctx.tab == 'gallery') return 0;
+    		return 1;
     	}
+
+    	current_block_type_index = select_block_type(null, ctx);
+    	if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
 
     	return {
     		c: function create() {
-    			section = element("section");
-    			div2 = element("div");
-    			div0 = element("div");
-    			h1 = element("h1");
-    			h1.textContent = "ผลงานที่ผ่านมา";
-    			t1 = space();
-    			br0 = element("br");
-    			t2 = space();
     			div1 = element("div");
-
-    			for (var i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].c();
-    			}
-
+    			div0 = element("div");
+    			span0 = element("span");
+    			span0.textContent = "ผลงานที่ผ่านมา";
+    			t1 = space();
+    			span1 = element("span");
+    			span1.textContent = "/";
     			t3 = space();
+    			span2 = element("span");
+    			span2.textContent = "บทความ";
+    			t5 = space();
+    			br0 = element("br");
+    			t6 = space();
     			br1 = element("br");
-    			t4 = space();
+    			t7 = space();
+    			if_block.c();
+    			t8 = space();
     			br2 = element("br");
-    			attr(h1, "class", "svelte-1hzud66");
-    			add_location(h1, file$3, 37, 8, 1114);
-    			attr(div0, "class", "title");
-    			add_location(div0, file$3, 36, 6, 1038);
-    			add_location(br0, file$3, 39, 6, 1157);
-    			attr(div1, "class", "gallery svelte-1hzud66");
-    			add_location(div1, file$3, 40, 6, 1170);
-    			add_location(br1, file$3, 48, 6, 1433);
-    			add_location(br2, file$3, 49, 6, 1446);
-    			attr(div2, "class", "container svelte-1hzud66");
-    			add_location(div2, file$3, 35, 4, 1008);
-    			attr(section, "id", "slide3");
-    			attr(section, "class", "svelte-1hzud66");
-    			add_location(section, file$3, 34, 2, 982);
+    			t9 = space();
+    			br3 = element("br");
+    			attr(span0, "class", "svelte-1xc8lkv");
+    			toggle_class(span0, "active", ctx.tab == 'gallery');
+    			add_location(span0, file$5, 117, 8, 3032);
+    			set_style(span1, "font-size", "2rem");
+    			set_style(span1, "font-weight", "lighter");
+    			attr(span1, "class", "svelte-1xc8lkv");
+    			add_location(span1, file$5, 122, 8, 3175);
+    			attr(span2, "class", "svelte-1xc8lkv");
+    			toggle_class(span2, "active", ctx.tab != 'gallery');
+    			add_location(span2, file$5, 123, 8, 3244);
+    			attr(div0, "class", "title svelte-1xc8lkv");
+    			add_location(div0, file$5, 116, 6, 3004);
+    			add_location(br0, file$5, 127, 6, 3368);
+    			add_location(br1, file$5, 128, 6, 3381);
+    			add_location(br2, file$5, 161, 6, 4490);
+    			add_location(br3, file$5, 162, 6, 4503);
+    			attr(div1, "class", "container svelte-1xc8lkv");
+    			add_location(div1, file$5, 115, 4, 2974);
+
+    			dispose = [
+    				listen(span0, "click", ctx.click_handler),
+    				listen(span2, "click", ctx.click_handler_1)
+    			];
     		},
 
     		m: function mount(target, anchor) {
-    			insert(target, section, anchor);
-    			append(section, div2);
-    			append(div2, div0);
-    			append(div0, h1);
-    			append(div2, t1);
-    			append(div2, br0);
-    			append(div2, t2);
-    			append(div2, div1);
-
-    			for (var i = 0; i < each_blocks.length; i += 1) {
-    				each_blocks[i].m(div1, null);
-    			}
-
-    			append(div2, t3);
-    			append(div2, br1);
-    			append(div2, t4);
-    			append(div2, br2);
+    			insert(target, div1, anchor);
+    			append(div1, div0);
+    			append(div0, span0);
+    			append(div0, t1);
+    			append(div0, span1);
+    			append(div0, t3);
+    			append(div0, span2);
+    			append(div1, t5);
+    			append(div1, br0);
+    			append(div1, t6);
+    			append(div1, br1);
+    			append(div1, t7);
+    			if_blocks[current_block_type_index].m(div1, null);
+    			append(div1, t8);
+    			append(div1, br2);
+    			append(div1, t9);
+    			append(div1, br3);
+    			current = true;
     		},
 
     		p: function update(changed, ctx) {
-    			if (changed._) {
-    				each_value = lodash.range(1, 13);
+    			if (changed.tab) {
+    				toggle_class(span0, "active", ctx.tab == 'gallery');
+    				toggle_class(span2, "active", ctx.tab != 'gallery');
+    			}
 
-    				for (var i = 0; i < each_value.length; i += 1) {
-    					const child_ctx = get_each_context(ctx, each_value, i);
+    			var previous_block_index = current_block_type_index;
+    			current_block_type_index = select_block_type(changed, ctx);
+    			if (current_block_type_index === previous_block_index) {
+    				if_blocks[current_block_type_index].p(changed, ctx);
+    			} else {
+    				group_outros();
+    				transition_out(if_blocks[previous_block_index], 1, 1, () => {
+    					if_blocks[previous_block_index] = null;
+    				});
+    				check_outros();
 
-    					if (each_blocks[i]) {
-    						each_blocks[i].p(changed, child_ctx);
-    						transition_in(each_blocks[i], 1);
-    					} else {
-    						each_blocks[i] = create_each_block(child_ctx);
-    						each_blocks[i].c();
-    						transition_in(each_blocks[i], 1);
-    						each_blocks[i].m(div1, null);
-    					}
+    				if_block = if_blocks[current_block_type_index];
+    				if (!if_block) {
+    					if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+    					if_block.c();
     				}
-
-    				for (; i < each_blocks.length; i += 1) {
-    					each_blocks[i].d(1);
-    				}
-    				each_blocks.length = each_value.length;
+    				transition_in(if_block, 1);
+    				if_block.m(div1, t8);
     			}
     		},
 
     		i: function intro(local) {
-    			if (!div0_intro) {
-    				add_render_callback(() => {
-    					div0_intro = create_in_transition(div0, fly, { x: -20, duration: 1000, delay: 700 });
-    					div0_intro.start();
-    				});
-    			}
-
-    			for (var i = 0; i < each_value.length; i += 1) transition_in(each_blocks[i]);
+    			if (current) return;
+    			transition_in(if_block);
+    			current = true;
     		},
 
-    		o: noop,
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			current = false;
+    		},
 
     		d: function destroy(detaching) {
     			if (detaching) {
-    				detach(section);
+    				detach(div1);
     			}
 
-    			destroy_each(each_blocks, detaching);
+    			if_blocks[current_block_type_index].d();
+    			run_all(dispose);
     		}
     	};
     }
 
-    // (42:8) {#each _.range(1, 13) as num}
-    function create_each_block(ctx) {
-    	var img, img_src_value, img_alt_value, img_intro;
+    // (143:6) {:else}
+    function create_else_block$1(ctx) {
+    	var div, each_blocks = [], each_1_lookup = new Map(), div_intro, div_outro, current;
+
+    	var each_value_1 = ctx.$posts;
+
+    	const get_key = ctx => ctx.num;
+
+    	for (var i = 0; i < each_value_1.length; i += 1) {
+    		let child_ctx = get_each_context_1(ctx, each_value_1, i);
+    		let key = get_key(child_ctx);
+    		each_1_lookup.set(key, each_blocks[i] = create_each_block_1(key, child_ctx));
+    	}
 
     	return {
     		c: function create() {
+    			div = element("div");
+
+    			for (i = 0; i < each_blocks.length; i += 1) each_blocks[i].c();
+    			attr(div, "class", "posts svelte-1xc8lkv");
+    			toggle_class(div, "active", ctx.tab != 'gallery');
+    			add_location(div, file$5, 143, 8, 3868);
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, div, anchor);
+
+    			for (i = 0; i < each_blocks.length; i += 1) each_blocks[i].m(div, null);
+
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			const each_value_1 = ctx.$posts;
+    			each_blocks = update_keyed_each(each_blocks, changed, get_key, 1, ctx, each_value_1, each_1_lookup, div, destroy_block, create_each_block_1, null, get_each_context_1);
+
+    			if (changed.tab) {
+    				toggle_class(div, "active", ctx.tab != 'gallery');
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			add_render_callback(() => {
+    				if (div_outro) div_outro.end(1);
+    				if (!div_intro) div_intro = create_in_transition(div, fly, { x: window.innerWidth, delay: 300 });
+    				div_intro.start();
+    			});
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			if (div_intro) div_intro.invalidate();
+
+    			div_outro = create_out_transition(div, fly, { x: window.innerWidth });
+
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(div);
+    			}
+
+    			for (i = 0; i < each_blocks.length; i += 1) each_blocks[i].d();
+
+    			if (detaching) {
+    				if (div_outro) div_outro.end();
+    			}
+    		}
+    	};
+    }
+
+    // (130:6) {#if tab == 'gallery'}
+    function create_if_block_1$1(ctx) {
+    	var div, each_blocks = [], each_1_lookup = new Map(), div_intro, div_outro, current;
+
+    	var each_value = lodash.range(0, 12);
+
+    	const get_key = ctx => ctx.num;
+
+    	for (var i = 0; i < each_value.length; i += 1) {
+    		let child_ctx = get_each_context(ctx, each_value, i);
+    		let key = get_key(child_ctx);
+    		each_1_lookup.set(key, each_blocks[i] = create_each_block(key, child_ctx));
+    	}
+
+    	return {
+    		c: function create() {
+    			div = element("div");
+
+    			for (i = 0; i < each_blocks.length; i += 1) each_blocks[i].c();
+    			attr(div, "class", "gallery svelte-1xc8lkv");
+    			toggle_class(div, "active", ctx.tab == 'gallery');
+    			add_location(div, file$5, 130, 8, 3425);
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, div, anchor);
+
+    			for (i = 0; i < each_blocks.length; i += 1) each_blocks[i].m(div, null);
+
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			const each_value = lodash.range(0, 12);
+    			each_blocks = update_keyed_each(each_blocks, changed, get_key, 1, ctx, each_value, each_1_lookup, div, destroy_block, create_each_block, null, get_each_context);
+
+    			if (changed.tab) {
+    				toggle_class(div, "active", ctx.tab == 'gallery');
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			add_render_callback(() => {
+    				if (div_outro) div_outro.end(1);
+    				if (!div_intro) div_intro = create_in_transition(div, fly, { x: -window.innerWidth, delay: 300 });
+    				div_intro.start();
+    			});
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			if (div_intro) div_intro.invalidate();
+
+    			div_outro = create_out_transition(div, fly, { x: -window.innerWidth });
+
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(div);
+    			}
+
+    			for (i = 0; i < each_blocks.length; i += 1) each_blocks[i].d();
+
+    			if (detaching) {
+    				if (div_outro) div_outro.end();
+    			}
+    		}
+    	};
+    }
+
+    // (149:10) {#each $posts as post, num (num)}
+    function create_each_block_1(key_1, ctx) {
+    	var div2, div0, img, img_src_value, img_alt_value, t0, div1, p, t1_value = ctx.post.title + "", t1, t2, button, t4, dispose;
+
+    	function click_handler_3() {
+    		return ctx.click_handler_3(ctx);
+    	}
+
+    	return {
+    		key: key_1,
+
+    		first: null,
+
+    		c: function create() {
+    			div2 = element("div");
+    			div0 = element("div");
     			img = element("img");
-    			attr(img, "src", img_src_value = `showcase/${ctx.num}.webp`);
-    			attr(img, "alt", img_alt_value = 'show case ' + ctx.num);
-    			attr(img, "class", "svelte-1hzud66");
-    			add_location(img, file$3, 42, 10, 1240);
+    			t0 = space();
+    			div1 = element("div");
+    			p = element("p");
+    			t1 = text(t1_value);
+    			t2 = space();
+    			button = element("button");
+    			button.textContent = "อ่านต่อ";
+    			t4 = space();
+    			attr(img, "src", img_src_value = ctx.post.image);
+    			attr(img, "alt", img_alt_value = ctx.post.image);
+    			attr(img, "class", "svelte-1xc8lkv");
+    			add_location(img, file$5, 151, 16, 4206);
+    			attr(div0, "class", "image svelte-1xc8lkv");
+    			add_location(div0, file$5, 150, 14, 4170);
+    			attr(p, "class", "svelte-1xc8lkv");
+    			add_location(p, file$5, 154, 16, 4321);
+    			attr(button, "class", "readmore svelte-1xc8lkv");
+    			add_location(button, file$5, 155, 16, 4357);
+    			attr(div1, "class", "content svelte-1xc8lkv");
+    			add_location(div1, file$5, 153, 14, 4283);
+    			attr(div2, "class", "card svelte-1xc8lkv");
+    			add_location(div2, file$5, 149, 12, 4097);
+    			dispose = listen(div2, "click", click_handler_3);
+    			this.first = div2;
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, div2, anchor);
+    			append(div2, div0);
+    			append(div0, img);
+    			append(div2, t0);
+    			append(div2, div1);
+    			append(div1, p);
+    			append(p, t1);
+    			append(div1, t2);
+    			append(div1, button);
+    			append(div2, t4);
+    		},
+
+    		p: function update(changed, new_ctx) {
+    			ctx = new_ctx;
+    			if ((changed.$posts) && img_src_value !== (img_src_value = ctx.post.image)) {
+    				attr(img, "src", img_src_value);
+    			}
+
+    			if ((changed.$posts) && img_alt_value !== (img_alt_value = ctx.post.image)) {
+    				attr(img, "alt", img_alt_value);
+    			}
+
+    			if ((changed.$posts) && t1_value !== (t1_value = ctx.post.title + "")) {
+    				set_data(t1, t1_value);
+    			}
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(div2);
+    			}
+
+    			dispose();
+    		}
+    	};
+    }
+
+    // (136:10) {#each _.range(0, 12) as num (num)}
+    function create_each_block(key_1, ctx) {
+    	var img, img_src_value, img_alt_value, dispose;
+
+    	function click_handler_2() {
+    		return ctx.click_handler_2(ctx);
+    	}
+
+    	return {
+    		key: key_1,
+
+    		first: null,
+
+    		c: function create() {
+    			img = element("img");
+    			attr(img, "src", img_src_value = `showcase/${ctx.num + 1}.webp`);
+    			attr(img, "alt", img_alt_value = 'show case ' + ctx.num + 1);
+    			attr(img, "class", "svelte-1xc8lkv");
+    			add_location(img, file$5, 136, 12, 3660);
+    			dispose = listen(img, "click", click_handler_2);
+    			this.first = img;
     		},
 
     		m: function mount(target, anchor) {
     			insert(target, img, anchor);
     		},
 
-    		p: noop,
-
-    		i: function intro(local) {
-    			if (!img_intro) {
-    				add_render_callback(() => {
-    					img_intro = create_in_transition(img, fly, { y: -20, duration: 1000, delay: ctx.num * 100 + 700 });
-    					img_intro.start();
-    				});
-    			}
+    		p: function update(changed, new_ctx) {
+    			ctx = new_ctx;
     		},
-
-    		o: noop,
 
     		d: function destroy(detaching) {
     			if (detaching) {
     				detach(img);
     			}
+
+    			dispose();
     		}
     	};
     }
 
-    function create_fragment$3(ctx) {
-    	var if_block_anchor;
+    function create_fragment$6(ctx) {
+    	var section, current;
 
-    	var if_block = (ctx.visible) && create_if_block$2(ctx);
+    	var if_block = (ctx.visible) && create_if_block$4(ctx);
 
     	return {
     		c: function create() {
+    			section = element("section");
     			if (if_block) if_block.c();
-    			if_block_anchor = empty();
+    			attr(section, "id", "slide3");
+    			attr(section, "class", "svelte-1xc8lkv");
+    			add_location(section, file$5, 113, 0, 2932);
     		},
 
     		l: function claim(nodes) {
@@ -25109,8 +27219,9 @@ var app = (function () {
     		},
 
     		m: function mount(target, anchor) {
-    			if (if_block) if_block.m(target, anchor);
-    			insert(target, if_block_anchor, anchor);
+    			insert(target, section, anchor);
+    			if (if_block) if_block.m(section, null);
+    			current = true;
     		},
 
     		p: function update(changed, ctx) {
@@ -25119,53 +27230,101 @@ var app = (function () {
     					if_block.p(changed, ctx);
     					transition_in(if_block, 1);
     				} else {
-    					if_block = create_if_block$2(ctx);
+    					if_block = create_if_block$4(ctx);
     					if_block.c();
     					transition_in(if_block, 1);
-    					if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    					if_block.m(section, null);
     				}
     			} else if (if_block) {
-    				if_block.d(1);
-    				if_block = null;
+    				group_outros();
+    				transition_out(if_block, 1, 1, () => {
+    					if_block = null;
+    				});
+    				check_outros();
     			}
     		},
 
     		i: function intro(local) {
+    			if (current) return;
     			transition_in(if_block);
+    			current = true;
     		},
 
-    		o: noop,
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			current = false;
+    		},
 
     		d: function destroy(detaching) {
-    			if (if_block) if_block.d(detaching);
-
     			if (detaching) {
-    				detach(if_block_anchor);
+    				detach(section);
     			}
+
+    			if (if_block) if_block.d();
     		}
     	};
     }
 
-    function instance$3($$self, $$props, $$invalidate) {
+    function instance$6($$self, $$props, $$invalidate) {
+    	let $posts;
+
+    	validate_store(posts, 'posts');
+    	component_subscribe($$self, posts, $$value => { $posts = $$value; $$invalidate('$posts', $posts); });
+
     	
+
       let { visible = true } = $$props;
+
+      let tab = "posts";
+      const [send, receive] = crossfade({ duration: 1000 });
+      const dispatch = createEventDispatcher();
+
+      async function setTab(str) {
+        $$invalidate('tab', tab = str);
+        dispatch("change", { loc: "tab" });
+      }
 
     	const writable_props = ['visible'];
     	Object.keys($$props).forEach(key => {
     		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<Slide3> was created with unknown prop '${key}'`);
     	});
 
+    	function click_handler() {
+    		return setTab('gallery');
+    	}
+
+    	function click_handler_1() {
+    		return setTab('posts');
+    	}
+
+    	function click_handler_2({ num }) {
+    		return modalData.setImage(num);
+    	}
+
+    	function click_handler_3({ num }) {
+    		return modalData.setPost(num);
+    	}
+
     	$$self.$set = $$props => {
     		if ('visible' in $$props) $$invalidate('visible', visible = $$props.visible);
     	};
 
-    	return { visible };
+    	return {
+    		visible,
+    		tab,
+    		setTab,
+    		$posts,
+    		click_handler,
+    		click_handler_1,
+    		click_handler_2,
+    		click_handler_3
+    	};
     }
 
     class Slide3 extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$3, create_fragment$3, safe_not_equal, ["visible"]);
+    		init(this, options, instance$6, create_fragment$6, safe_not_equal, ["visible"]);
     	}
 
     	get visible() {
@@ -25177,86 +27336,63 @@ var app = (function () {
     	}
     }
 
-    /* src/views/Slide4.svelte generated by Svelte v3.9.1 */
+    /* src/views/Modal.svelte generated by Svelte v3.9.1 */
 
-    const file$4 = "src/views/Slide4.svelte";
+    const file$6 = "src/views/Modal.svelte";
 
-    // (30:0) {#if visible}
-    function create_if_block$3(ctx) {
-    	var section, p, t1, img, t2, a;
+    // (169:6) {:else}
+    function create_else_block$2(ctx) {
+    	var t;
 
     	return {
     		c: function create() {
-    			section = element("section");
-    			p = element("p");
-    			p.textContent = "อ. ยศพนธ์ ประดิภาส";
-    			t1 = space();
-    			img = element("img");
-    			t2 = space();
-    			a = element("a");
-    			a.textContent = "084-755-0825";
-    			attr(p, "class", "svelte-11d5s86");
-    			add_location(p, file$4, 31, 4, 678);
-    			attr(img, "src", "assets/logo.svg");
-    			attr(img, "alt", "logo");
-    			attr(img, "class", "svelte-11d5s86");
-    			add_location(img, file$4, 32, 4, 708);
-    			attr(a, "aria-label", "call phone");
-    			attr(a, "href", "tel:0847550825");
-    			attr(a, "class", "svelte-11d5s86");
-    			add_location(a, file$4, 33, 4, 753);
-    			attr(section, "id", "slide4");
-    			attr(section, "class", "svelte-11d5s86");
-    			add_location(section, file$4, 30, 2, 652);
+    			t = text("data.type != post");
     		},
 
     		m: function mount(target, anchor) {
-    			insert(target, section, anchor);
-    			append(section, p);
-    			append(section, t1);
-    			append(section, img);
-    			append(section, t2);
-    			append(section, a);
+    			insert(target, t, anchor);
     		},
+
+    		p: noop,
+    		i: noop,
+    		o: noop,
 
     		d: function destroy(detaching) {
     			if (detaching) {
-    				detach(section);
+    				detach(t);
     			}
     		}
     	};
     }
 
-    function create_fragment$4(ctx) {
-    	var if_block_anchor;
-
-    	var if_block = (ctx.visible) && create_if_block$3();
+    // (163:41) 
+    function create_if_block_2(ctx) {
+    	var img, img_src_value, img_alt_value;
 
     	return {
     		c: function create() {
-    			if (if_block) if_block.c();
-    			if_block_anchor = empty();
-    		},
-
-    		l: function claim(nodes) {
-    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    			img = element("img");
+    			set_style(img, "max-width", "100%");
+    			set_style(img, "max-height", "100%");
+    			set_style(img, "z-index", "10");
+    			set_style(img, "max-width", "90vw");
+    			set_style(img, "max-height", "90vh");
+    			attr(img, "src", img_src_value = ctx.$modalData.curr);
+    			attr(img, "alt", img_alt_value = ctx.$modalData.curr);
+    			add_location(img, file$6, 163, 8, 3785);
     		},
 
     		m: function mount(target, anchor) {
-    			if (if_block) if_block.m(target, anchor);
-    			insert(target, if_block_anchor, anchor);
+    			insert(target, img, anchor);
     		},
 
     		p: function update(changed, ctx) {
-    			if (ctx.visible) {
-    				if (!if_block) {
-    					if_block = create_if_block$3();
-    					if_block.c();
-    					if_block.m(if_block_anchor.parentNode, if_block_anchor);
-    				}
-    			} else if (if_block) {
-    				if_block.d(1);
-    				if_block = null;
+    			if ((changed.$modalData) && img_src_value !== (img_src_value = ctx.$modalData.curr)) {
+    				attr(img, "src", img_src_value);
+    			}
+
+    			if ((changed.$modalData) && img_alt_value !== (img_alt_value = ctx.$modalData.curr)) {
+    				attr(img, "alt", img_alt_value);
     			}
     		},
 
@@ -25264,52 +27400,357 @@ var app = (function () {
     		o: noop,
 
     		d: function destroy(detaching) {
-    			if (if_block) if_block.d(detaching);
-
     			if (detaching) {
-    				detach(if_block_anchor);
+    				detach(img);
     			}
     		}
     	};
     }
 
-    function instance$4($$self, $$props, $$invalidate) {
-    	
-      let { visible = true } = $$props;
+    // (146:42) 
+    function create_if_block_1$2(ctx) {
+    	var div2, div1, div0, h1, t0_value = ctx.$modalData.curr.title + "", t0, h1_intro, h1_outro, t1, img, img_src_value, img_alt_value, t2, html_tag, raw_value = ctx.$modalData.curr.html + "", div2_transition, current;
 
-    	const writable_props = ['visible'];
-    	Object.keys($$props).forEach(key => {
-    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<Slide4> was created with unknown prop '${key}'`);
-    	});
+    	return {
+    		c: function create() {
+    			div2 = element("div");
+    			div1 = element("div");
+    			div0 = element("div");
+    			h1 = element("h1");
+    			t0 = text(t0_value);
+    			t1 = space();
+    			img = element("img");
+    			t2 = space();
+    			add_location(h1, file$6, 152, 14, 3372);
+    			attr(img, "src", img_src_value = ctx.$modalData.curr.image);
+    			attr(img, "alt", img_alt_value = ctx.$modalData.curr.title);
+    			add_location(img, file$6, 157, 14, 3577);
+    			html_tag = new HtmlTag(raw_value, null);
+    			attr(div0, "class", "post svelte-tbrvez");
+    			add_location(div0, file$6, 151, 12, 3339);
+    			attr(div1, "class", "body");
+    			add_location(div1, file$6, 150, 10, 3308);
+    			attr(div2, "id", "post-content");
+    			attr(div2, "class", "content svelte-tbrvez");
+    			add_location(div2, file$6, 146, 8, 3192);
+    		},
 
-    	$$self.$set = $$props => {
-    		if ('visible' in $$props) $$invalidate('visible', visible = $$props.visible);
+    		m: function mount(target, anchor) {
+    			insert(target, div2, anchor);
+    			append(div2, div1);
+    			append(div1, div0);
+    			append(div0, h1);
+    			append(h1, t0);
+    			append(div0, t1);
+    			append(div0, img);
+    			append(div0, t2);
+    			html_tag.m(div0);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			if ((!current || changed.$modalData) && t0_value !== (t0_value = ctx.$modalData.curr.title + "")) {
+    				set_data(t0, t0_value);
+    			}
+
+    			if ((!current || changed.$modalData) && img_src_value !== (img_src_value = ctx.$modalData.curr.image)) {
+    				attr(img, "src", img_src_value);
+    			}
+
+    			if ((!current || changed.$modalData) && img_alt_value !== (img_alt_value = ctx.$modalData.curr.title)) {
+    				attr(img, "alt", img_alt_value);
+    			}
+
+    			if ((!current || changed.$modalData) && raw_value !== (raw_value = ctx.$modalData.curr.html + "")) {
+    				html_tag.p(raw_value);
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			add_render_callback(() => {
+    				if (h1_outro) h1_outro.end(1);
+    				if (!h1_intro) h1_intro = create_in_transition(h1, ctx.send, { key: 'modal-post-content-head' });
+    				h1_intro.start();
+    			});
+
+    			add_render_callback(() => {
+    				if (!div2_transition) div2_transition = create_bidirectional_transition(div2, fade, { duration: 500 }, true);
+    				div2_transition.run(1);
+    			});
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			if (h1_intro) h1_intro.invalidate();
+
+    			h1_outro = create_out_transition(h1, ctx.receive, { key: 'modal-post-content-head' });
+
+    			if (!div2_transition) div2_transition = create_bidirectional_transition(div2, fade, { duration: 500 }, false);
+    			div2_transition.run(0);
+
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(div2);
+    				if (h1_outro) h1_outro.end();
+    				if (div2_transition) div2_transition.end();
+    			}
+    		}
     	};
-
-    	return { visible };
     }
 
-    class Slide4 extends SvelteComponentDev {
+    // (144:6) {#if !$modalData}
+    function create_if_block$5(ctx) {
+    	var t;
+
+    	return {
+    		c: function create() {
+    			t = text("FALLBACK NO DATA");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, t, anchor);
+    		},
+
+    		p: noop,
+    		i: noop,
+    		o: noop,
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(t);
+    			}
+    		}
+    	};
+    }
+
+    function create_fragment$7(ctx) {
+    	var div4, div0, t0, div3, current_block_type_index, if_block, t1, div1, t2, div2, dispose_default_slot, current, dispose;
+
+    	const default_slot_template = ctx.$$slots.default;
+    	const default_slot = create_slot(default_slot_template, ctx, null);
+
+    	var if_block_creators = [
+    		create_if_block$5,
+    		create_if_block_1$2,
+    		create_if_block_2,
+    		create_else_block$2
+    	];
+
+    	var if_blocks = [];
+
+    	function select_block_type(changed, ctx) {
+    		if (!ctx.$modalData) return 0;
+    		if (ctx.$modalData.type == 'post') return 1;
+    		if (ctx.$modalData.type == 'img') return 2;
+    		return 3;
+    	}
+
+    	current_block_type_index = select_block_type(null, ctx);
+    	if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+
+    	return {
+    		c: function create() {
+    			div4 = element("div");
+    			div0 = element("div");
+    			t0 = space();
+    			div3 = element("div");
+
+    			if (!default_slot) {
+    				if_block.c();
+    				t1 = space();
+    				div1 = element("div");
+    				t2 = space();
+    				div2 = element("div");
+    			}
+
+    			if (default_slot) default_slot.c();
+    			attr(div0, "class", "background svelte-tbrvez");
+    			add_location(div0, file$6, 140, 2, 2990);
+
+    			if (!default_slot) {
+    				attr(div1, "class", "prev-area svelte-tbrvez");
+    				add_location(div1, file$6, 169, 6, 4010);
+    				attr(div2, "class", "next-area svelte-tbrvez");
+    				add_location(div2, file$6, 170, 6, 4070);
+
+    				dispose_default_slot = [
+    					listen(div1, "click", modalData.goPrev),
+    					listen(div2, "click", modalData.goNext)
+    				];
+    			}
+
+    			attr(div3, "id", "content-wrapper");
+    			attr(div3, "class", "svelte-tbrvez");
+    			add_location(div3, file$6, 141, 2, 3054);
+    			attr(div4, "class", "modal svelte-tbrvez");
+    			toggle_class(div4, "is-active", !!ctx.$modalData);
+    			add_location(div4, file$6, 139, 0, 2937);
+
+    			dispose = [
+    				listen(window, "keydown", handleKey),
+    				listen(div0, "click", ctx.click_handler)
+    			];
+    		},
+
+    		l: function claim(nodes) {
+    			if (default_slot) default_slot.l(div3_nodes);
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, div4, anchor);
+    			append(div4, div0);
+    			append(div4, t0);
+    			append(div4, div3);
+
+    			if (!default_slot) {
+    				if_blocks[current_block_type_index].m(div3, null);
+    				append(div3, t1);
+    				append(div3, div1);
+    				append(div3, t2);
+    				append(div3, div2);
+    			}
+
+    			else {
+    				default_slot.m(div3, null);
+    			}
+
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (!default_slot) {
+    				var previous_block_index = current_block_type_index;
+    				current_block_type_index = select_block_type(changed, ctx);
+    				if (current_block_type_index === previous_block_index) {
+    					if_blocks[current_block_type_index].p(changed, ctx);
+    				} else {
+    					group_outros();
+    					transition_out(if_blocks[previous_block_index], 1, 1, () => {
+    						if_blocks[previous_block_index] = null;
+    					});
+    					check_outros();
+
+    					if_block = if_blocks[current_block_type_index];
+    					if (!if_block) {
+    						if_block = if_blocks[current_block_type_index] = if_block_creators[current_block_type_index](ctx);
+    						if_block.c();
+    					}
+    					transition_in(if_block, 1);
+    					if_block.m(div3, t1);
+    				}
+    			}
+
+    			if (default_slot && default_slot.p && changed.$$scope) {
+    				default_slot.p(
+    					get_slot_changes(default_slot_template, ctx, changed, null),
+    					get_slot_context(default_slot_template, ctx, null)
+    				);
+    			}
+
+    			if (changed.$modalData) {
+    				toggle_class(div4, "is-active", !!ctx.$modalData);
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(if_block);
+    			transition_in(default_slot, local);
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			transition_out(default_slot, local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(div4);
+    			}
+
+    			if (!default_slot) {
+    				if_blocks[current_block_type_index].d();
+    				run_all(dispose_default_slot);
+    			}
+
+    			if (default_slot) default_slot.d(detaching);
+    			run_all(dispose);
+    		}
+    	};
+    }
+
+    function handleKey(e) {
+      switch (e.key) {
+        case "ArrowRight":
+          modalData.goNext();
+          break;
+        case "ArrowLeft":
+          modalData.goPrev();
+          break;
+        case "Escape":
+          modalData.reset();
+          break;
+      }
+    }
+
+    function instance$7($$self, $$props, $$invalidate) {
+    	let $modalData;
+
+    	validate_store(modalData, 'modalData');
+    	component_subscribe($$self, modalData, $$value => { $modalData = $$value; $$invalidate('$modalData', $modalData); });
+
+    	
+      const [send, receive] = crossfade({
+        duration: d => Math.sqrt(d * 200)
+      });
+      modalData.subscribe(val => {
+        const elm = document.getElementById("post-content");
+        if (elm) {
+          elm.scrollTop = 0;
+        }
+      });
+
+    	let { $$slots = {}, $$scope } = $$props;
+
+    	function click_handler() {
+    		return modalData.reset();
+    	}
+
+    	$$self.$set = $$props => {
+    		if ('$$scope' in $$props) $$invalidate('$$scope', $$scope = $$props.$$scope);
+    	};
+
+    	return {
+    		send,
+    		receive,
+    		$modalData,
+    		click_handler,
+    		$$slots,
+    		$$scope
+    	};
+    }
+
+    class Modal extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$4, create_fragment$4, safe_not_equal, ["visible"]);
-    	}
-
-    	get visible() {
-    		throw new Error("<Slide4>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
-    	}
-
-    	set visible(value) {
-    		throw new Error("<Slide4>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    		init(this, options, instance$7, create_fragment$7, safe_not_equal, []);
     	}
     }
 
     /* src/views/Home.svelte generated by Svelte v3.9.1 */
 
-    const file$5 = "src/views/Home.svelte";
+    const file$7 = "src/views/Home.svelte";
 
-    function create_fragment$5(ctx) {
-    	var div4, div0, updating_visible, t0, div1, updating_visible_1, t1, div2, updating_visible_2, t2, div3, current;
+    function create_fragment$8(ctx) {
+    	var div3, div0, updating_visible, t0, div1, updating_visible_1, t1, div2, updating_visible_2, t2, current;
 
     	function slide1_visible_binding(value) {
     		ctx.slide1_visible_binding.call(null, value);
@@ -25353,11 +27794,11 @@ var app = (function () {
 
     	binding_callbacks.push(() => bind(slide3, 'visible', slide3_visible_binding));
 
-    	var slide4 = new Slide4({ $$inline: true });
+    	var modal = new Modal({ $$inline: true });
 
     	return {
     		c: function create() {
-    			div4 = element("div");
+    			div3 = element("div");
     			div0 = element("div");
     			slide1.$$.fragment.c();
     			t0 = space();
@@ -25367,18 +27808,15 @@ var app = (function () {
     			div2 = element("div");
     			slide3.$$.fragment.c();
     			t2 = space();
-    			div3 = element("div");
-    			slide4.$$.fragment.c();
+    			modal.$$.fragment.c();
     			attr(div0, "class", "section");
-    			add_location(div0, file$5, 30, 2, 830);
+    			add_location(div0, file$7, 46, 2, 1196);
     			attr(div1, "class", "section");
-    			add_location(div1, file$5, 33, 2, 904);
-    			attr(div2, "class", "section fp-auto-height");
-    			add_location(div2, file$5, 37, 2, 1015);
-    			attr(div3, "class", "section fp-auto-height");
-    			add_location(div3, file$5, 40, 2, 1104);
-    			attr(div4, "id", "fullpage");
-    			add_location(div4, file$5, 29, 0, 808);
+    			add_location(div1, file$7, 50, 2, 1293);
+    			attr(div2, "class", "section fp-auto-height-responsive fp-scrollable");
+    			add_location(div2, file$7, 54, 2, 1404);
+    			attr(div3, "id", "fullpage");
+    			add_location(div3, file$7, 41, 0, 1077);
     		},
 
     		l: function claim(nodes) {
@@ -25386,18 +27824,17 @@ var app = (function () {
     		},
 
     		m: function mount(target, anchor) {
-    			insert(target, div4, anchor);
-    			append(div4, div0);
+    			insert(target, div3, anchor);
+    			append(div3, div0);
     			mount_component(slide1, div0, null);
-    			append(div4, t0);
-    			append(div4, div1);
+    			append(div3, t0);
+    			append(div3, div1);
     			mount_component(slide2, div1, null);
-    			append(div4, t1);
-    			append(div4, div2);
+    			append(div3, t1);
+    			append(div3, div2);
     			mount_component(slide3, div2, null);
-    			append(div4, t2);
-    			append(div4, div3);
-    			mount_component(slide4, div3, null);
+    			insert(target, t2, anchor);
+    			mount_component(modal, target, anchor);
     			current = true;
     		},
 
@@ -25429,7 +27866,7 @@ var app = (function () {
 
     			transition_in(slide3.$$.fragment, local);
 
-    			transition_in(slide4.$$.fragment, local);
+    			transition_in(modal.$$.fragment, local);
 
     			current = true;
     		},
@@ -25438,13 +27875,13 @@ var app = (function () {
     			transition_out(slide1.$$.fragment, local);
     			transition_out(slide2.$$.fragment, local);
     			transition_out(slide3.$$.fragment, local);
-    			transition_out(slide4.$$.fragment, local);
+    			transition_out(modal.$$.fragment, local);
     			current = false;
     		},
 
     		d: function destroy(detaching) {
     			if (detaching) {
-    				detach(div4);
+    				detach(div3);
     			}
 
     			destroy_component(slide1);
@@ -25453,13 +27890,18 @@ var app = (function () {
 
     			destroy_component(slide3);
 
-    			destroy_component(slide4);
+    			if (detaching) {
+    				detach(t2);
+    			}
+
+    			destroy_component(modal, detaching);
     		}
     	};
     }
 
-    function instance$5($$self, $$props, $$invalidate) {
+    function instance$8($$self, $$props, $$invalidate) {
     	
+
       let visible = [true, true, true, true];
       // $: console.log(visible);
       async function reload(index) {
@@ -25467,16 +27909,20 @@ var app = (function () {
         await tick();
         visible[index] = true; $$invalidate('visible', visible);
       }
+      let fullpage_api = null;
       onMount(async () => {
-        const fullpage_api = new fullpage("#fullpage", {
-          scrollOverflow: false,
+        fullpage_api = new fullpage("#fullpage", {
+          // css3: false,
+          // scrollBar: true,
+          scrollOverflow: true,
           licenseKey: licenseKey,
           async onLeave(ol, nw) {
             if (ol.index == 3 && nw.index == 2) return;
             await reload(nw.index);
           }
         });
-        // fullpage_api.moveTo(0);
+        // fullpage_api.setResponsive(true);
+        // fullpage_api.moveTo(2);
         await tick();
         await reload(0);
       });
@@ -25507,20 +27953,95 @@ var app = (function () {
     class Home extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$5, create_fragment$5, safe_not_equal, []);
+    		init(this, options, instance$8, create_fragment$8, safe_not_equal, []);
     	}
     }
 
     /* src/App.svelte generated by Svelte v3.9.1 */
 
-    function create_fragment$6(ctx) {
-    	var current;
+    // (71:0) <Router>
+    function create_default_slot(ctx) {
+    	var t, current;
 
-    	var home = new Home({ $$inline: true });
+    	var route0 = new Route({
+    		props: { path: "/about", component: About },
+    		$$inline: true
+    	});
+
+    	var route1 = new Route({
+    		props: {
+    		path: "/",
+    		component: Home,
+    		exact: true
+    	},
+    		$$inline: true
+    	});
 
     	return {
     		c: function create() {
-    			home.$$.fragment.c();
+    			route0.$$.fragment.c();
+    			t = space();
+    			route1.$$.fragment.c();
+    		},
+
+    		m: function mount(target, anchor) {
+    			mount_component(route0, target, anchor);
+    			insert(target, t, anchor);
+    			mount_component(route1, target, anchor);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			var route0_changes = {};
+    			if (changed.About) route0_changes.component = About;
+    			route0.$set(route0_changes);
+
+    			var route1_changes = {};
+    			if (changed.Home) route1_changes.component = Home;
+    			route1.$set(route1_changes);
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(route0.$$.fragment, local);
+
+    			transition_in(route1.$$.fragment, local);
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(route0.$$.fragment, local);
+    			transition_out(route1.$$.fragment, local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			destroy_component(route0, detaching);
+
+    			if (detaching) {
+    				detach(t);
+    			}
+
+    			destroy_component(route1, detaching);
+    		}
+    	};
+    }
+
+    function create_fragment$9(ctx) {
+    	var current;
+
+    	var router = new Router_1({
+    		props: {
+    		$$slots: { default: [create_default_slot] },
+    		$$scope: { ctx }
+    	},
+    		$$inline: true
+    	});
+
+    	return {
+    		c: function create() {
+    			router.$$.fragment.c();
     		},
 
     		l: function claim(nodes) {
@@ -25528,26 +28049,30 @@ var app = (function () {
     		},
 
     		m: function mount(target, anchor) {
-    			mount_component(home, target, anchor);
+    			mount_component(router, target, anchor);
     			current = true;
     		},
 
-    		p: noop,
+    		p: function update(changed, ctx) {
+    			var router_changes = {};
+    			if (changed.$$scope) router_changes.$$scope = { changed, ctx };
+    			router.$set(router_changes);
+    		},
 
     		i: function intro(local) {
     			if (current) return;
-    			transition_in(home.$$.fragment, local);
+    			transition_in(router.$$.fragment, local);
 
     			current = true;
     		},
 
     		o: function outro(local) {
-    			transition_out(home.$$.fragment, local);
+    			transition_out(router.$$.fragment, local);
     			current = false;
     		},
 
     		d: function destroy(detaching) {
-    			destroy_component(home, detaching);
+    			destroy_component(router, detaching);
     		}
     	};
     }
@@ -25555,7 +28080,7 @@ var app = (function () {
     class App extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, null, create_fragment$6, safe_not_equal, []);
+    		init(this, options, null, create_fragment$9, safe_not_equal, []);
     	}
     }
 

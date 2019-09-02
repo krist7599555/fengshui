@@ -46,6 +46,9 @@
         font-size: 3rem;
         margin-bottom: -1rem;
       }
+      p {
+        font-size: 1.3rem;
+      }
     }
     > .footer {
       a {
@@ -80,7 +83,7 @@
     </a>
     <br />
     <div class="logo" in:fly={{ y: -20, duration: 700, delay: 500 }}>
-      <img src="assets/logo.svg" alt="logo" />
+      <img src="assets/logo-3.svg" alt="logo" />
     </div>
     <div class="body" in:fly={{ y: -20, duration: 1400, delay: 1000 }}>
       <h1>บ้านกำหนดชีวิต</h1>
