@@ -152,7 +152,7 @@
 </style>
 
 <svelte:window on:keydown={handleKey} />
-<div class="modal" class:is-active={!!$modalData}>
+<div class="modal" class:is-active={!!$modalData} on:scroll|preventDefault|stopPropagation>
   <div class="background" on:click={() => modalData.reset()} />
   <div id="content-wrapper">
     <slot>

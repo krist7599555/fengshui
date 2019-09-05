@@ -1,60 +1,94 @@
 <script>
-  import { fullpage, licenseKey } from "../libs/fullpage.js";
-  import { tick, onMount } from "svelte";
-  import About from "./About.svelte";
-
-  let visible = [true, true, true, true];
-  // $: console.log(visible);
-  async function reload(index) {
-    visible[index] = false;
-    await tick();
-    visible[index] = true;
-  }
-  let fullpage_api = null;
-  onMount(async () => {
-    fullpage_api = new fullpage("#fullpage", {
-      // css3: false,
-      // scrollBar: true,
-      scrollOverflow: true,
-      licenseKey: licenseKey,
-      async onLeave(ol, nw) {
-        if (ol.index == 3 && nw.index == 2) return;
-        await reload(nw.index);
-      }
-    });
-    // fullpage_api.setResponsive(true);
-    // fullpage_api.moveTo(2);
-    await tick();
-    await reload(0);
-  });
+  import About from "./About.svelte";s
   import Slide1 from "./Slide1.svelte";
   import Slide2 from "./Slide2.svelte";
   import Slide3 from "./Slide3.svelte";
   import Slide4 from "./Slide4.svelte";
+  import Modal from "./Modal.svelte";
 
-  async function changeHandle() {
-    setTimeout(fullpage_api.reBuild, 500);
+  import { tick, onMount } from "svelte";
+  import { tweened } from 'svelte/motion';
+  import { cubicInOut } from 'svelte/easing';
+  import _ from 'lodash'
+
+  const screen = tweened(0, {
+    duration: 1000,
+    easing: cubicInOut
+  });
+  $: window.scrollTo(0, $screen);
+
+
+
+
+  function getScrollTop(){
+    var doc = document.documentElement;
+    return (window.pageYOffset || doc.scrollTop)  - (doc.clientTop || 0);
   }
 
-  import Modal from "./Modal.svelte";
+  let isScrolling = false;
+  async function scroll(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!isScrolling) {
+      isScrolling = true
+      const screenHeight = window.innerHeight;
+      const scrollTop = getScrollTop()
+      const currSection = _.round(scrollTop / screenHeight)
+
+      if (scrollTop > $screen && currSection < 2) {
+        screen.set((currSection + 1) * screenHeight)
+        document.body.classList.add('stop-scrolling')
+      } else
+      if (scrollTop < $screen && currSection < 3) {
+        screen.set((currSection - 1) * screenHeight)
+        document.body.classList.add('stop-scrolling')
+      } else {
+        isScrolling = false;
+        return;
+      }
+      clearTimeout(scrollId);
+      var scrollId = setTimeout(function(){
+          isScrolling = false;
+          document.body.classList.remove('stop-scrolling')
+      }, 1001);
+    }
+    // await tick();
+    // yOffset = scrollTop;
+    // const rect = document.body.getBoundingClientRect()
+    // console.log(scrollTop, rect)
+    // if (scrollTop > 1000) {
+    //   window.scroll(0, 100)
+    // }
+    // window.pageYOffset = window.pageYOffset % 1000
+
+    // console.log(e)
+    // console.log(document.body.getBoundingClientRect())
+    // console.log(document.body)
+    // console.log(document.body.scrollTop)
+    // console.log(document.body.scrollTop)
+
+    // ).top > scrollPos
+  }
 </script>
 
-<div id="fullpage">
+<svelte:window on:scroll|preventDefault={scroll} on:touchmove|preventDefault />
 
-  <!-- <div class="section fp-auto-height-responsive fp-scrollable">
-    <About />
-  </div> -->
+<!-- <div style='position: fixed; z-index: 1000; color: red
+'>
+  {$screen} {$screen % window.innerHeight}
+</div> -->
+
+<div id="fullpage">
   <div class="section">
-    <!-- <About /> -->
-    <Slide1 bind:visible={visible[0]} />
+    <Slide1 />
   </div>
   <div class="section">
-    <Slide2 bind:visible={visible[1]} />
+    <Slide2 />
   </div>
   <!-- fp-auto-height-responsive -->
   <div class="section fp-auto-height-responsive fp-scrollable">
     <!-- <div> -->
-    <Slide3 bind:visible={visible[2]} />
+    <Slide3 />
     <!-- <Slide4 /> -->
     <!-- </div> -->
   </div>
@@ -63,3 +97,11 @@
 </div>
 
 <Modal />
+
+<style>
+.section > :global(*) {min-height: 100vh}
+:global(.stop-scrolling) {
+  height: 100%;
+  overflow: hidden;
+}
+</style>
