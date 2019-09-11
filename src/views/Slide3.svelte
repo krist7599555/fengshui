@@ -41,7 +41,8 @@
         > * {
           margin: auto 0;
         }
-        > :nth-child(2) {
+        > :nth-child(2),
+        > :nth-child(4) {
           margin: auto 1rem;
         }
         > :not(:nth-child(2)) {
@@ -140,6 +141,10 @@
         <span style="font-size: 2rem; font-weight: lighter">/</span>
         <span on:click={() => setTab('posts')} class:active={tab != 'gallery'}>
           บทความ
+        </span>
+        <span style="font-size: 2rem; font-weight: lighter">/</span>
+        <span on:click={() => setTab('posts')} class:active={tab != 'gallery'}>
+          แนวทางแก้ไข
         </span>
       </div>
       <br />

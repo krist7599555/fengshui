@@ -1,5 +1,6 @@
 <script>
-  import About from "./About.svelte";s
+  import About from "./About.svelte";
+  import { modalData } from "./store.js";
   import Slide1 from "./Slide1.svelte";
   import Slide2 from "./Slide2.svelte";
   import Slide3 from "./Slide3.svelte";
@@ -7,9 +8,9 @@
   import Modal from "./Modal.svelte";
 
   import { tick, onMount } from "svelte";
-  import { tweened } from 'svelte/motion';
-  import { cubicInOut } from 'svelte/easing';
-  import _ from 'lodash'
+  import { tweened } from "svelte/motion";
+  import { cubicInOut } from "svelte/easing";
+  import _ from "lodash";
 
   const screen = tweened(0, {
     duration: 1000,
@@ -17,40 +18,37 @@
   });
   $: window.scrollTo(0, $screen);
 
-
-
-
-  function getScrollTop(){
+  function getScrollTop() {
     var doc = document.documentElement;
-    return (window.pageYOffset || doc.scrollTop)  - (doc.clientTop || 0);
+    return (window.pageYOffset || doc.scrollTop) - (doc.clientTop || 0);
   }
 
   let isScrolling = false;
   async function scroll(e) {
-    e.preventDefault()
-    e.stopPropagation()
-    if (!isScrolling) {
-      isScrolling = true
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isScrolling && !$modalData) {
+      console.log("start Scroll");
+      isScrolling = true;
       const screenHeight = window.innerHeight;
-      const scrollTop = getScrollTop()
-      const currSection = _.round(scrollTop / screenHeight)
+      const scrollTop = getScrollTop();
+      const currSection = _.round(scrollTop / screenHeight);
 
       if (scrollTop > $screen && currSection < 2) {
-        screen.set((currSection + 1) * screenHeight)
-        document.body.classList.add('stop-scrolling')
-      } else
-      if (scrollTop < $screen && currSection < 3) {
-        screen.set((currSection - 1) * screenHeight)
-        document.body.classList.add('stop-scrolling')
+        screen.set((currSection + 1) * screenHeight);
+        document.body.classList.add("stop-scrolling");
+      } else if (scrollTop < $screen && currSection < 3) {
+        screen.set((currSection - 1) * screenHeight);
+        document.body.classList.add("stop-scrolling");
       } else {
         isScrolling = false;
         return;
       }
       clearTimeout(scrollId);
-      var scrollId = setTimeout(function(){
-          isScrolling = false;
-          document.body.classList.remove('stop-scrolling')
-      }, 1001);
+      var scrollId = setTimeout(function() {
+        isScrolling = false;
+        document.body.classList.remove("stop-scrolling");
+      }, 1566);
     }
     // await tick();
     // yOffset = scrollTop;
@@ -70,6 +68,16 @@
     // ).top > scrollPos
   }
 </script>
+
+<style>
+  .section > :global(*) {
+    min-height: 100vh;
+  }
+  :global(.stop-scrolling) {
+    height: 100%;
+    overflow: hidden;
+  }
+</style>
 
 <svelte:window on:scroll|preventDefault={scroll} on:touchmove|preventDefault />
 
@@ -97,11 +105,3 @@
 </div>
 
 <Modal />
-
-<style>
-.section > :global(*) {min-height: 100vh}
-:global(.stop-scrolling) {
-  height: 100%;
-  overflow: hidden;
-}
-</style>

@@ -89,6 +89,8 @@
       <h1>บ้านกำหนดชีวิต</h1>
       <p>ซินแสฮวงจุ้ย อ.ยศพนธ์ ประดิภาส</p>
       <br />
+      <!-- <button class="button">อ่านบทความ</button>
+      <br /> -->
       <br />
     </div>
     <div class="footer" in:fly={{ y: -20, duration: 1400, delay: 1700 }}>

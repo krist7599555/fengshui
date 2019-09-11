@@ -4,6 +4,15 @@
   import { crossfade } from "svelte/transition";
   import { flip } from "svelte/animate";
   import Icon from "fa-svelte";
+  import {
+    faTimes,
+    faTimesCircle,
+    faArrowLeft,
+    faArrowCircleLeft,
+    faChevronCircleLeft,
+    faChevronLeft,
+    faArrowCircleRight
+  } from "@fortawesome/free-solid-svg-icons";
   import * as animateScroll from "svelte-scrollto";
   const [send, receive] = crossfade({
     duration: d => Math.sqrt(d * 200)
@@ -56,16 +65,22 @@
       background-color: hsla(0, 0%, 4%, 0.86);
     }
     .content {
-      padding: 3rem 2rem;
-      @media screen and (min-width: 600px) {
-        max-height: calc(100vh - 160px);
+      // padding: 3rem 2rem;
+      padding: 0;
+      @media screen and (min-width: 640px) {
+        // padding: 0;
+        padding: 3rem 2rem;
       }
+      max-height: calc(100vh - 160px);
       overflow: auto;
       position: relative;
       // margin: 0 20px;
       width: 100%;
       max-width: 960px;
       max-width: 600px;
+      // @media screen and (max-width: 600px) {
+      //   max-width: calc(100vw - 4rem);
+      // }
       background-color: white;
       height: 100%;
     }
@@ -74,14 +89,14 @@
     > :global(img) {
       max-width: 100%;
     }
-    @media screen and (max-width: 600px) {
+    @media screen and (max-width: 640px) {
       > :global(:not(img)) {
         margin-left: 1rem;
         margin-right: 1rem;
       }
     }
   }
-  @media screen and (max-width: 600px) {
+  @media screen and (max-width: 640px) {
     .footer {
       margin-left: 1rem;
       margin-right: 1rem;
@@ -109,52 +124,84 @@
       opacity: 0;
     }
   }
-  .prev-area,
-  .next-area {
-    width: 20%;
-    background-color: #0005;
-    position: absolute;
-    height: 100%;
-    top: 0;
-    cursor: pointer;
-    &::before {
-      text-align: center;
-      width: 100%;
-      position: absolute;
-      top: 29%;
-      color: white;
-      font-size: 1.5rem;
-    }
-    transition-delay: 1s;
-    animation-duration: 1s;
-    animation-fill-mode: both;
-    transition: all 1s ease-out;
-    &:not(:hover) {
-      animation-name: fadeOut;
-      // opacity: 1;
-    }
-  }
-  .prev-area {
-    left: 0;
-    &::before {
-      content: "ก่อนหน้า";
-    }
-  }
-  .next-area {
-    right: 0;
-    &::before {
-      content: "ต่อไป";
-    }
-  }
+
   #content-wrapper {
     position: relative;
+  }
+  .nav {
+    border-radius: 1rem 1rem 0 0;
+    position: sticky;
+    display: table-cell;
+    &.dark {
+      background-color: #404142;
+    }
+    &:not(.dark) {
+      background-color: white;
+    }
+    border: solid 0px #000;
+    border-width: 0 0 1px 0;
+    border-width: 0;
+    padding: 0.9rem 0rem 3px;
+    a {
+      cursor: pointer;
+      &:first-child {
+        margin-left: 1rem;
+      }
+      margin-right: 1rem;
+    }
+    :global(.nav-icon) {
+      font-size: 1.3rem;
+      &.-left {
+        color: #b0b2b7;
+      }
+      &.-right {
+        color: #77b72d;
+        // .dark & {
+        color: #abdc74;
+        // }
+      }
+      &.-cancel {
+        color: #e83060;
+        // .dark & {
+        color: #e87593;
+        // }
+      }
+    }
   }
 </style>
 
 <svelte:window on:keydown={handleKey} />
-<div class="modal" class:is-active={!!$modalData} on:scroll|preventDefault|stopPropagation>
+<div
+  class="modal"
+  class:is-active={!!$modalData}
+  on:scroll|preventDefault|stopPropagation>
   <div class="background" on:click={() => modalData.reset()} />
-  <div id="content-wrapper">
+  <div id="content-wrapper" style="overflow: auto">
+    <div class="nav dark">
+      <a on:click|preventDefault={modalData.goPrev}>
+        <Icon class="nav-icon -left" icon={faArrowCircleLeft} />
+      </a>
+      <!-- <a
+        on:click|preventDefault={() => {
+          modalData.reset();
+          window.scroll(0, 0);
+        }}>
+        <img
+          src="assets/home-icon.png"
+          alt="home-icon"
+          style=" width: 1.3rem; height: 1.3rem; filter: invert(86%) sepia(35%)
+          saturate(912%) hue-rotate(346deg) brightness(105%) contrast(101%);" />
+      </a> -->
+      <a on:click|preventDefault={modalData.reset}>
+        <Icon class="nav-icon -cancel" icon={faTimesCircle} />
+      </a>
+      <a on:click|preventDefault={modalData.goNext}>
+        <Icon class="nav-icon -right" icon={faArrowCircleRight} />
+      </a>
+      <!-- <button class="button" on:click={modalData.goPrev}>กลับ</button>
+      <button class="button" on:click={modalData.reset}>ปิด</button>
+      <button class="button" on:click={modalData.goNext}>ไป</button> -->
+    </div>
     <slot>
       {#if !$modalData}
         FALLBACK NO DATA
@@ -163,17 +210,17 @@
           id="post-content"
           class="content"
           transition:fade={{ duration: 500 }}>
-          <div class="body">
-            <div class="post">
-              <h1
-                in:send={{ key: 'modal-post-content-head' }}
-                out:receive={{ key: 'modal-post-content-head' }}>
-                {$modalData.curr.title}
-              </h1>
-              <img src={$modalData.curr.image} alt={$modalData.curr.title} />
-              {@html $modalData.curr.html}
-            </div>
+
+          <div class="post">
+            <!-- <h1
+              in:send={{ key: 'modal-post-content-head' }}
+              out:receive={{ key: 'modal-post-content-head' }}>
+              {$modalData.curr.title}
+            </h1> -->
+            <img src={$modalData.curr.image} alt={$modalData.curr.title} />
+            {@html $modalData.curr.html}
           </div>
+
         </div>
       {:else if $modalData.type == 'img'}
         <img
@@ -182,8 +229,6 @@
           src={$modalData.curr}
           alt={$modalData.curr} />
       {:else}data.type != post{/if}
-      <div class="prev-area" on:click={modalData.goPrev} />
-      <div class="next-area" on:click={modalData.goNext} />
     </slot>
   </div>
   <!-- <div class="footer">
