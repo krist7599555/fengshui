@@ -37,6 +37,7 @@ function fPhoto2FullSizeLink(link) {
 for (const { type, link } of posts) {
   // if (type == 'photo') continue;
   const ch = cheerio.load(fHtml(link));
+
   ch('br').replaceWith('\n');
   const body = ch('._2vj8')
     .text()
@@ -51,7 +52,7 @@ for (const { type, link } of posts) {
     'https://m.facebook.com' +
     ch('#MPhotoContent .attachment.mfss .atb span._2vja.mfss.fcg a').attr('href');
   CURL(`-L "${fPhoto2Cache(firstimg)}" > ${id}-${'S'}.jpg`);
-  // return;
+
   ch('.attachment > a').each((i, el) => {
     const img = 'https://m.facebook.com' + el.attribs.href;
     const bigimg = fPhoto2FullSizeLink(img);
