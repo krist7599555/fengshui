@@ -20,8 +20,7 @@
 
 <style lang="scss">
   #slide1 {
-    background-image: linear-gradient(#000d, #111b),
-      url("img/changyu-hu-7GYX8IMaudo-unsplash.webp");
+    background-image: linear-gradient(#000d, #111b), url("img/bg1.webp");
 
     background-size: cover;
     background-repeat: no-repeat;

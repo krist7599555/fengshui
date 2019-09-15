@@ -205,7 +205,8 @@
     <slot>
       {#if !$modalData}
         FALLBACK NO DATA
-      {:else if $modalData.type == 'post'}
+        <!-- {:else if $modalData.type == 'post'} -->
+      {:else}
         <div
           id="post-content"
           class="content"
@@ -217,18 +218,19 @@
               out:receive={{ key: 'modal-post-content-head' }}>
               {$modalData.curr.title}
             </h1> -->
-            <img src={$modalData.curr.image} alt={$modalData.curr.title} />
-            {@html $modalData.curr.html}
+            <img src={$modalData.img} alt={$modalData.img} />
+            {@html $modalData.html}
           </div>
 
         </div>
-      {:else if $modalData.type == 'img'}
+        <!-- {:else if $modalData.type == 'img'}
         <img
           style="max-width: 100%; max-height: 100%; z-index: 10; max-width:
           90vw; max-height: 90vh;"
           src={$modalData.curr}
           alt={$modalData.curr} />
-      {:else}data.type != post{/if}
+      {:else}data.type != post{/if} -->
+      {/if}
     </slot>
   </div>
   <!-- <div class="footer">

@@ -100,9 +100,7 @@
 {#if visible}
   <section id="slide2">
     <div class="profile" in:fly={{ y: 20, duration: 2400, delay: 500 }}>
-      <img
-        src="img/69340853_109203763782390_221042970084769792_o.webp"
-        alt="people" />
+      <img src="img/yotpone.webp" alt="people yotpone" />
     </div>
     <div class="quote" in:fly={{ y: -20, duration: 2400, delay: 700 }}>
       ความยากดีมีจน ความสุขความทุกข์

@@ -87,21 +87,15 @@
 </div> -->
 
 <div id="fullpage">
-  <div class="section">
+  <!-- <div class="section">
     <Slide1 />
   </div>
   <div class="section">
     <Slide2 />
-  </div>
-  <!-- fp-auto-height-responsive -->
-  <div class="section fp-auto-height-responsive fp-scrollable">
-    <!-- <div> -->
-    <Slide3 />
-    <!-- <Slide4 /> -->
-    <!-- </div> -->
-  </div>
-  <!-- <div class="section fp-auto-height">
   </div> -->
+  <div class="section fp-auto-height-responsive fp-scrollable">
+    <Slide3 />
+  </div>
 </div>
 
 <Modal />

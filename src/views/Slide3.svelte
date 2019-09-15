@@ -2,20 +2,12 @@
   import { tick, createEventDispatcher } from "svelte";
   import { fly, fade } from "svelte/transition";
   import { flip } from "svelte/animate";
-  import { posts, modalData } from "./store.js";
+  import { contents, modalData } from "./store.js";
   import { crossfade } from "svelte/transition";
   import _ from "lodash";
-
   export let visible = true;
-
   let tab = "posts";
   const [send, receive] = crossfade({ duration: 1000 });
-  const dispatch = createEventDispatcher();
-
-  async function setTab(str) {
-    tab = str;
-    dispatch("change", { loc: "tab" });
-  }
 </script>
 
 <style lang="scss">
@@ -25,7 +17,6 @@
     flex-direction: column;
     padding-top: 3rem;
     background-color: white;
-    // background-image: url("img/henry-co-6-stO-K6JaY-unsplash.webp");
     background-size: contain;
     background-position: left bottom;
     background-attachment: inherit;
@@ -134,22 +125,39 @@
     <div class="container">
       <div class="title">
         <span
-          on:click={() => setTab('gallery')}
-          class:active={tab == 'gallery'}>
+          class:active={tab == 'showcase'}
+          on:click={() => (tab = 'showcase')}>
           ผลงานที่ผ่านมา
         </span>
         <span style="font-size: 2rem; font-weight: lighter">/</span>
-        <span on:click={() => setTab('posts')} class:active={tab != 'gallery'}>
+        <span class:active={tab == 'posts'} on:click={() => (tab = 'posts')}>
           บทความ
         </span>
         <span style="font-size: 2rem; font-weight: lighter">/</span>
-        <span on:click={() => setTab('posts')} class:active={tab != 'gallery'}>
+        <span class:active={tab == 'fixed'} on:click={() => (tab = 'fixed')}>
           แนวทางแก้ไข
         </span>
       </div>
       <br />
       <br />
-      {#if tab == 'gallery'}
+      {#if $contents}
+        <div class="content-item-block">
+          {#each _.values($contents[tab]) as content}
+            <div
+              class="card"
+              on:click={() => modalData.setContent(content.type, content.num)}>
+              <div class="image">
+                <img src={content.img} alt={content.img} />
+              </div>
+              <div class="content">
+                <!-- <p>{.title}</p> -->
+                <button class="readmore">อ่านต่อ</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      <!-- {#if tab == 'gallery'}
         <div
           class="gallery"
           class:active={tab == 'gallery'}
@@ -180,7 +188,7 @@
             </div>
           {/each}
         </div>
-      {/if}
+      {/if} -->
       <br />
       <br />
     </div>
