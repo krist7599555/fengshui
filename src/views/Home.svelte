@@ -12,60 +12,51 @@
   import { cubicInOut } from "svelte/easing";
   import _ from "lodash";
 
-  const screen = tweened(0, {
-    duration: 1000,
-    easing: cubicInOut
-  });
-  $: window.scrollTo(0, $screen);
+  function allowScroll(allow) {
+    document.body.classList[allow ? "remove" : "add"]("stop-scrolling");
+  }
 
   function getScrollTop() {
     var doc = document.documentElement;
     return (window.pageYOffset || doc.scrollTop) - (doc.clientTop || 0);
   }
+  function getFullHeight() {
+    return window.innerHeight;
+  }
 
+  onMount(() => {
+    allowScroll(false);
+  });
   let isScrolling = false;
-  async function scroll(e) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isScrolling && !$modalData) {
-      console.log("start Scroll");
+  let showSlide2 = false;
+
+  function wheel(e) {
+    const down = e.deltaY > 0;
+    if (getScrollTop() >= getFullHeight() * 2 + 10) return;
+    if (!isScrolling) {
+      allowScroll(false);
       isScrolling = true;
-      const screenHeight = window.innerHeight;
-      const scrollTop = getScrollTop();
-      const currSection = _.round(scrollTop / screenHeight);
-
-      if (scrollTop > $screen && currSection < 2) {
-        screen.set((currSection + 1) * screenHeight);
-        document.body.classList.add("stop-scrolling");
-      } else if (scrollTop < $screen && currSection < 3) {
-        screen.set((currSection - 1) * screenHeight);
-        document.body.classList.add("stop-scrolling");
-      } else {
-        isScrolling = false;
-        return;
+      document.body.style.transform = `translateY(${
+        down ? "-100vh" : _.min([getFullHeight(), getScrollTop()]) + "px"
+      })`;
+      if (down) {
+        showSlide2 = true;
       }
-      clearTimeout(scrollId);
-      var scrollId = setTimeout(function() {
+      setTimeout(async () => {
+        allowScroll(true);
+        document.body.style.transform = "";
+        const locY = getScrollTop() + (down ? 1 : -1) * getFullHeight();
+        window.scrollTo(0, locY);
         isScrolling = false;
-        document.body.classList.remove("stop-scrolling");
-      }, 1566);
+        allowScroll(false);
+        await tick();
+        console.log(getScrollTop(), 2 * getFullHeight());
+        if (down && getScrollTop() >= 2 * getFullHeight() - 10) {
+          isScrolling = true;
+          allowScroll(true);
+        }
+      }, 1550);
     }
-    // await tick();
-    // yOffset = scrollTop;
-    // const rect = document.body.getBoundingClientRect()
-    // console.log(scrollTop, rect)
-    // if (scrollTop > 1000) {
-    //   window.scroll(0, 100)
-    // }
-    // window.pageYOffset = window.pageYOffset % 1000
-
-    // console.log(e)
-    // console.log(document.body.getBoundingClientRect())
-    // console.log(document.body)
-    // console.log(document.body.scrollTop)
-    // console.log(document.body.scrollTop)
-
-    // ).top > scrollPos
   }
 </script>
 
@@ -73,26 +64,29 @@
   .section > :global(*) {
     min-height: 100vh;
   }
-  :global(.stop-scrolling) {
+  :global(body.stop-scrolling) {
     height: 100%;
     overflow: hidden;
+    transition: transform 1s ease;
   }
 </style>
 
-<svelte:window on:scroll|preventDefault={scroll} on:touchmove|preventDefault />
-
+<!-- <svelte:window on:scroll|preventDefault={scroll} on:touchmove|preventDefault /> -->
+<svelte:body on:wheel={wheel} on:touchmove={wheel} />
 <!-- <div style='position: fixed; z-index: 1000; color: red
 '>
   {$screen} {$screen % window.innerHeight}
 </div> -->
 
 <div id="fullpage">
-  <!-- <div class="section">
+  <div class="section">
     <Slide1 />
   </div>
   <div class="section">
-    <Slide2 />
-  </div> -->
+    {#if showSlide2}
+      <Slide2 />
+    {/if}
+  </div>
   <div class="section fp-auto-height-responsive fp-scrollable">
     <Slide3 />
   </div>

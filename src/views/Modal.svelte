@@ -171,6 +171,7 @@
 </style>
 
 <svelte:window on:keydown={handleKey} />
+
 <div
   class="modal"
   class:is-active={!!$modalData}
@@ -178,34 +179,19 @@
   <div class="background" on:click={() => modalData.reset()} />
   <div id="content-wrapper" style="overflow: auto">
     <div class="nav dark">
-      <a on:click|preventDefault={modalData.goPrev}>
+      <a on:click|preventDefault={modalData.goPrev} href="#">
         <Icon class="nav-icon -left" icon={faArrowCircleLeft} />
       </a>
-      <!-- <a
-        on:click|preventDefault={() => {
-          modalData.reset();
-          window.scroll(0, 0);
-        }}>
-        <img
-          src="assets/home-icon.png"
-          alt="home-icon"
-          style=" width: 1.3rem; height: 1.3rem; filter: invert(86%) sepia(35%)
-          saturate(912%) hue-rotate(346deg) brightness(105%) contrast(101%);" />
-      </a> -->
-      <a on:click|preventDefault={modalData.reset}>
+      <a on:click|preventDefault={modalData.reset} href="#">
         <Icon class="nav-icon -cancel" icon={faTimesCircle} />
       </a>
-      <a on:click|preventDefault={modalData.goNext}>
+      <a on:click|preventDefault={modalData.goNext} href="#">
         <Icon class="nav-icon -right" icon={faArrowCircleRight} />
       </a>
-      <!-- <button class="button" on:click={modalData.goPrev}>กลับ</button>
-      <button class="button" on:click={modalData.reset}>ปิด</button>
-      <button class="button" on:click={modalData.goNext}>ไป</button> -->
     </div>
     <slot>
       {#if !$modalData}
         FALLBACK NO DATA
-        <!-- {:else if $modalData.type == 'post'} -->
       {:else}
         <div
           id="post-content"
@@ -219,7 +205,9 @@
               {$modalData.curr.title}
             </h1> -->
             <img src={$modalData.img} alt={$modalData.img} />
-            {@html $modalData.html}
+            {#if $modalData.html}
+              {@html $modalData.html}
+            {/if}
           </div>
 
         </div>
@@ -233,9 +221,5 @@
       {/if}
     </slot>
   </div>
-  <!-- <div class="footer">
-    <a class="button" on:click={modalData.goPrev}>ก่อนหน้า</a>
-    <a class="button" on:click={modalData.reset}>ปิด</a>
-    <a class="button" on:click={modalData.goNext}>ต่อไป</a>
-  </div> -->
+
 </div>

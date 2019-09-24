@@ -1,10 +1,25 @@
 <script>
-  import { tick, createEventDispatcher } from "svelte";
+  import { tick, createEventDispatcher, onMount } from "svelte";
   import { fly, fade } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { contents, modalData } from "./store.js";
   import { crossfade } from "svelte/transition";
   import _ from "lodash";
+  import waterfall from "./waterfall";
+
+  onMount(async () => {
+    while (1) {
+      // await tick();
+      setTimeout(() => {
+        console.log("water");
+        console.log($contents);
+        console.log(document.querySelector(".content-item-block"));
+      }, 1000);
+      break;
+    }
+    waterfall(".content-item-block");
+  });
+
   export let visible = true;
   let tab = "posts";
   const [send, receive] = crossfade({ duration: 1000 });
@@ -62,7 +77,7 @@
   }
   .gallery {
     img {
-      max-height: 200px;
+      // max-height: 200px;
       max-width: 100%;
       margin: 0 0.7rem 2rem;
       box-shadow: 0 2px 3px rgba(10, 10, 10, 0.1),
@@ -88,7 +103,7 @@
       display: block;
       position: relative;
       img {
-        max-height: 200px;
+        // max-height: 200px;
         max-width: 300px;
         width: 100%;
         height: auto;
@@ -96,7 +111,7 @@
     }
     > .content {
       background-color: transparent;
-      padding: 1rem 1rem;
+      // padding: 1rem 1rem;
       overflow: hidden;
       text-overflow: clip;
       white-space: nowrap;
@@ -157,38 +172,6 @@
           {/each}
         </div>
       {/if}
-      <!-- {#if tab == 'gallery'}
-        <div
-          class="gallery"
-          class:active={tab == 'gallery'}
-          in:fly={{ x: -window.innerWidth, delay: 300 }}
-          out:fly={{ x: -window.innerWidth }}>
-          {#each _.range(0, 12) as num (num)}
-            <img
-              on:click={() => modalData.setImage(num)}
-              src={`showcase/${num + 1}.webp`}
-              alt={'show case ' + num + 1} />
-          {/each}
-        </div>
-      {:else}
-        <div
-          class="posts"
-          class:active={tab != 'gallery'}
-          in:fly={{ x: window.innerWidth, delay: 300 }}
-          out:fly={{ x: window.innerWidth }}>
-          {#each $posts as post, num (num)}
-            <div class="card" on:click={() => modalData.setPost(num)}>
-              <div class="image">
-                <img src={post.image} alt={post.image} />
-              </div>
-              <div class="content">
-                <p>{post.title}</p>
-                <button class="readmore">อ่านต่อ</button>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if} -->
       <br />
       <br />
     </div>

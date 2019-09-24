@@ -1,6 +1,7 @@
 import { writable, readable } from 'svelte/store';
 import _ from 'lodash';
 import axios from 'axios';
+import { get } from 'svelte/store';
 
 export const contents = readable(null, function start(set) {
   axios.get('/database/list.txt').then(res => {
@@ -40,11 +41,9 @@ export const contents = readable(null, function start(set) {
   return function stop() {};
 });
 
-let $contents = null;
-contents.subscribe(val => ($contents = val));
-
 async function getContent(type, num) {
-  if (!(type in $contents, type)) {
+  const $contents = get(contents);
+  if (!(type in $contents)) {
     console.error($contents);
     console.error($contents[type]);
     throw new Error(`content from type "${type}" id not exist`);
@@ -54,7 +53,7 @@ async function getContent(type, num) {
   if (num < 1) num = mx;
   else if (num > mx) num = 1;
   const res = _.get($contents[type], num, null);
-  if (res.html) {
+  if (res.html && _.startsWith(res.html, '/database/')) {
     res.html = await axios.get(res.html).then(r => r.data);
   }
   console.log(type, num, res);
@@ -63,6 +62,7 @@ async function getContent(type, num) {
 
 function createModalData() {
   const { subscribe, set, update } = writable(null);
+  const val = () => get({ subscribe });
   return {
     subscribe,
     reset: () => set(null),
@@ -70,9 +70,9 @@ function createModalData() {
     setPost: async num => set(await getContent('posts', num)),
     setShowcase: async num => set(await getContent('showcase', num)),
     setFixed: async num => set(await getContent('fixed', num)),
-    goNum: num => update(async n => await getContent(n.type, num)),
-    goPrev: () => update(async n => await getContent(n.type, n.num - 1)),
-    goNext: () => update(async n => await getContent(n.type, n.num + 1))
+    goNum: async num => set(await getContent(val().type, num)),
+    goPrev: async () => set(await getContent(val().type, val().num - 1)),
+    goNext: async () => set(await getContent(val().type, val().num + 1))
   };
 }
 

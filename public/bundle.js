@@ -40,6 +40,11 @@ var app = (function () {
         const unsub = store.subscribe(callback);
         return unsub.unsubscribe ? () => unsub.unsubscribe() : unsub;
     }
+    function get_store_value(store) {
+        let value;
+        subscribe(store, _ => value = _)();
+        return value;
+    }
     function component_subscribe(component, store, callback) {
         component.$$.on_destroy.push(subscribe(store, callback));
     }
@@ -269,6 +274,9 @@ var app = (function () {
             throw new Error(`Function called outside component initialization`);
         return current_component;
     }
+    function onMount(fn) {
+        get_current_component().$$.on_mount.push(fn);
+    }
     function onDestroy(fn) {
         get_current_component().$$.on_destroy.push(fn);
     }
@@ -299,6 +307,10 @@ var app = (function () {
             update_scheduled = true;
             resolved_promise.then(flush);
         }
+    }
+    function tick() {
+        schedule_update();
+        return resolved_promise;
     }
     function add_render_callback(fn) {
         render_callbacks.push(fn);
@@ -394,6 +406,68 @@ var app = (function () {
         }
     }
     const null_transition = { duration: 0 };
+    function create_in_transition(node, fn, params) {
+        let config = fn(node, params);
+        let running = false;
+        let animation_name;
+        let task;
+        let uid = 0;
+        function cleanup() {
+            if (animation_name)
+                delete_rule(node, animation_name);
+        }
+        function go() {
+            const { delay = 0, duration = 300, easing = identity, tick = noop, css } = config || null_transition;
+            if (css)
+                animation_name = create_rule(node, 0, 1, duration, delay, easing, css, uid++);
+            tick(0, 1);
+            const start_time = now() + delay;
+            const end_time = start_time + duration;
+            if (task)
+                task.abort();
+            running = true;
+            add_render_callback(() => dispatch(node, true, 'start'));
+            task = loop(now => {
+                if (running) {
+                    if (now >= end_time) {
+                        tick(1, 0);
+                        dispatch(node, true, 'end');
+                        cleanup();
+                        return running = false;
+                    }
+                    if (now >= start_time) {
+                        const t = easing((now - start_time) / duration);
+                        tick(t, 1 - t);
+                    }
+                }
+                return running;
+            });
+        }
+        let started = false;
+        return {
+            start() {
+                if (started)
+                    return;
+                delete_rule(node);
+                if (is_function(config)) {
+                    config = config();
+                    wait().then(go);
+                }
+                else {
+                    go();
+                }
+            },
+            invalidate() {
+                started = false;
+            },
+            end() {
+                if (running) {
+                    cleanup();
+                    running = false;
+                }
+            }
+        };
+    }
     function create_bidirectional_transition(node, fn, params, intro) {
         let config = fn(node, params);
         let t = intro ? 0 : 1;
@@ -20376,11 +20450,9 @@ var app = (function () {
       return function stop() {};
     });
 
-    let $contents = null;
-    contents.subscribe(val => ($contents = val));
-
     async function getContent(type, num) {
-      if (!(type)) {
+      const $contents = get_store_value(contents);
+      if (!(type in $contents)) {
         console.error($contents);
         console.error($contents[type]);
         throw new Error(`content from type "${type}" id not exist`);
@@ -20390,7 +20462,7 @@ var app = (function () {
       if (num < 1) num = mx;
       else if (num > mx) num = 1;
       const res = lodash.get($contents[type], num, null);
-      if (res.html) {
+      if (res.html && lodash.startsWith(res.html, '/database/')) {
         res.html = await axios$1.get(res.html).then(r => r.data);
       }
       console.log(type, num, res);
@@ -20399,6 +20471,7 @@ var app = (function () {
 
     function createModalData() {
       const { subscribe, set, update } = writable(null);
+      const val = () => get_store_value({ subscribe });
       return {
         subscribe,
         reset: () => set(null),
@@ -20406,17 +20479,14 @@ var app = (function () {
         setPost: async num => set(await getContent('posts', num)),
         setShowcase: async num => set(await getContent('showcase', num)),
         setFixed: async num => set(await getContent('fixed', num)),
-        goNum: num => update(async n => await getContent(n.type, num)),
-        goPrev: () => update(async n => await getContent(n.type, n.num - 1)),
-        goNext: () => update(async n => await getContent(n.type, n.num + 1))
+        goNum: async num => set(await getContent(val().type, num)),
+        goPrev: async () => set(await getContent(val().type, val().num - 1)),
+        goNext: async () => set(await getContent(val().type, val().num + 1))
       };
     }
 
     const modalData = createModalData();
 
-    function cubicInOut(t) {
-        return t < 0.5 ? 4.0 * t * t * t : 0.5 * Math.pow(2.0 * t - 2.0, 3.0) + 1.0;
-    }
     function cubicOut(t) {
         const f = t - 1.0;
         return f * f * f + 1.0;
@@ -20455,6 +20525,20 @@ var app = (function () {
             delay,
             duration,
             css: t => `opacity: ${t * o}`
+        };
+    }
+    function fly(node, { delay = 0, duration = 400, easing = cubicOut, x = 0, y = 0, opacity = 0 }) {
+        const style = getComputedStyle(node);
+        const target_opacity = +style.opacity;
+        const transform = style.transform === 'none' ? '' : style.transform;
+        const od = target_opacity * (1 - opacity);
+        return {
+            delay,
+            duration,
+            easing,
+            css: (t, u) => `
+			transform: ${transform} translate(${(1 - t) * x}px, ${(1 - t) * y}px);
+			opacity: ${target_opacity - (od * u)}`
         };
     }
     function crossfade(_a) {
@@ -20622,15 +20706,597 @@ var app = (function () {
       iconName: 'arrow-circle-right',
       icon: [512, 512, [], "f0a9", "M256 8c137 0 248 111 248 248S393 504 256 504 8 393 8 256 119 8 256 8zm-28.9 143.6l75.5 72.4H120c-13.3 0-24 10.7-24 24v16c0 13.3 10.7 24 24 24h182.6l-75.5 72.4c-9.7 9.3-9.9 24.8-.4 34.3l11 10.9c9.4 9.4 24.6 9.4 33.9 0L404.3 273c9.4-9.4 9.4-24.6 0-33.9L271.6 106.3c-9.4-9.4-24.6-9.4-33.9 0l-11 10.9c-9.5 9.6-9.3 25.1.4 34.4z"]
     };
+    var faPhoneAlt = {
+      prefix: 'fas',
+      iconName: 'phone-alt',
+      icon: [512, 512, [], "f879", "M497.39 361.8l-112-48a24 24 0 0 0-28 6.9l-49.6 60.6A370.66 370.66 0 0 1 130.6 204.11l60.6-49.6a23.94 23.94 0 0 0 6.9-28l-48-112A24.16 24.16 0 0 0 122.6.61l-104 24A24 24 0 0 0 0 48c0 256.5 207.9 464 464 464a24 24 0 0 0 23.4-18.6l24-104a24.29 24.29 0 0 0-14.01-27.6z"]
+    };
     var faTimesCircle = {
       prefix: 'fas',
       iconName: 'times-circle',
       icon: [512, 512, [], "f057", "M256 8C119 8 8 119 8 256s111 248 248 248 248-111 248-248S393 8 256 8zm121.6 313.1c4.7 4.7 4.7 12.3 0 17L338 377.6c-4.7 4.7-12.3 4.7-17 0L256 312l-65.1 65.6c-4.7 4.7-12.3 4.7-17 0L134.4 338c-4.7-4.7-4.7-12.3 0-17l65.6-65-65.6-65.1c-4.7-4.7-4.7-12.3 0-17l39.6-39.6c4.7-4.7 12.3-4.7 17 0l65 65.7 65.1-65.6c4.7-4.7 12.3-4.7 17 0l39.6 39.6c4.7 4.7 4.7 12.3 0 17L312 256l65.6 65.1z"]
     };
 
-    /* src/views/Slide3.svelte generated by Svelte v3.9.1 */
+    var faFacebookSquare = {
+      prefix: 'fab',
+      iconName: 'facebook-square',
+      icon: [448, 512, [], "f082", "M400 32H48A48 48 0 0 0 0 80v352a48 48 0 0 0 48 48h137.25V327.69h-63V256h63v-54.64c0-62.15 37-96.48 93.67-96.48 27.14 0 55.52 4.84 55.52 4.84v61h-31.27c-30.81 0-40.42 19.12-40.42 38.73V256h68.78l-11 71.69h-57.78V480H400a48 48 0 0 0 48-48V80a48 48 0 0 0-48-48z"]
+    };
+    var faLine = {
+      prefix: 'fab',
+      iconName: 'line',
+      icon: [448, 512, [], "f3c0", "M272.1 204.2v71.1c0 1.8-1.4 3.2-3.2 3.2h-11.4c-1.1 0-2.1-.6-2.6-1.3l-32.6-44v42.2c0 1.8-1.4 3.2-3.2 3.2h-11.4c-1.8 0-3.2-1.4-3.2-3.2v-71.1c0-1.8 1.4-3.2 3.2-3.2H219c1 0 2.1.5 2.6 1.4l32.6 44v-42.2c0-1.8 1.4-3.2 3.2-3.2h11.4c1.8-.1 3.3 1.4 3.3 3.1zm-82-3.2h-11.4c-1.8 0-3.2 1.4-3.2 3.2v71.1c0 1.8 1.4 3.2 3.2 3.2h11.4c1.8 0 3.2-1.4 3.2-3.2v-71.1c0-1.7-1.4-3.2-3.2-3.2zm-27.5 59.6h-31.1v-56.4c0-1.8-1.4-3.2-3.2-3.2h-11.4c-1.8 0-3.2 1.4-3.2 3.2v71.1c0 .9.3 1.6.9 2.2.6.5 1.3.9 2.2.9h45.7c1.8 0 3.2-1.4 3.2-3.2v-11.4c0-1.7-1.4-3.2-3.1-3.2zM332.1 201h-45.7c-1.7 0-3.2 1.4-3.2 3.2v71.1c0 1.7 1.4 3.2 3.2 3.2h45.7c1.8 0 3.2-1.4 3.2-3.2v-11.4c0-1.8-1.4-3.2-3.2-3.2H301v-12h31.1c1.8 0 3.2-1.4 3.2-3.2V234c0-1.8-1.4-3.2-3.2-3.2H301v-12h31.1c1.8 0 3.2-1.4 3.2-3.2v-11.4c-.1-1.7-1.5-3.2-3.2-3.2zM448 113.7V399c-.1 44.8-36.8 81.1-81.7 81H81c-44.8-.1-81.1-36.9-81-81.7V113c.1-44.8 36.9-81.1 81.7-81H367c44.8.1 81.1 36.8 81 81.7zm-61.6 122.6c0-73-73.2-132.4-163.1-132.4-89.9 0-163.1 59.4-163.1 132.4 0 65.4 58 120.2 136.4 130.6 19.1 4.1 16.9 11.1 12.6 36.8-.7 4.1-3.3 16.1 14.1 8.8 17.4-7.3 93.9-55.3 128.2-94.7 23.6-26 34.9-52.3 34.9-81.5z"]
+    };
 
-    const file$3 = "src/views/Slide3.svelte";
+    /* src/views/Slide1.svelte generated by Svelte v3.9.1 */
+
+    const file$3 = "src/views/Slide1.svelte";
+
+    // (65:0) {#if visible}
+    function create_if_block$2(ctx) {
+    	var div3, a0, t0, span, t2, br0, t3, div0, img, div0_intro, t4, div1, h1, t6, p, t8, br1, t9, br2, div1_intro, t10, div2, a1, t11, a2, div2_intro, current;
+
+    	var icon0 = new Icon({
+    		props: { icon: faPhoneAlt, class: "fa-1x" },
+    		$$inline: true
+    	});
+
+    	var icon1 = new Icon({
+    		props: { icon: faFacebookSquare, class: "fa-2x" },
+    		$$inline: true
+    	});
+
+    	var icon2 = new Icon({
+    		props: { icon: faLine, class: "fa-2x" },
+    		$$inline: true
+    	});
+
+    	return {
+    		c: function create() {
+    			div3 = element("div");
+    			a0 = element("a");
+    			icon0.$$.fragment.c();
+    			t0 = space();
+    			span = element("span");
+    			span.textContent = "084-755-0825";
+    			t2 = space();
+    			br0 = element("br");
+    			t3 = space();
+    			div0 = element("div");
+    			img = element("img");
+    			t4 = space();
+    			div1 = element("div");
+    			h1 = element("h1");
+    			h1.textContent = "บ้านกำหนดชีวิต";
+    			t6 = space();
+    			p = element("p");
+    			p.textContent = "ซินแสฮวงจุ้ย อ.ยศพนธ์ ประดิภาส";
+    			t8 = space();
+    			br1 = element("br");
+    			t9 = space();
+    			br2 = element("br");
+    			t10 = space();
+    			div2 = element("div");
+    			a1 = element("a");
+    			icon1.$$.fragment.c();
+    			t11 = space();
+    			a2 = element("a");
+    			icon2.$$.fragment.c();
+    			attr(span, "class", "svelte-ii2fev");
+    			add_location(span, file$3, 68, 6, 1583);
+    			attr(a0, "aria-label", "call phone");
+    			attr(a0, "id", "abs-contact");
+    			attr(a0, "href", "tel:0847550825");
+    			attr(a0, "class", "svelte-ii2fev");
+    			add_location(a0, file$3, 66, 4, 1463);
+    			add_location(br0, file$3, 70, 4, 1622);
+    			attr(img, "src", "assets/logo-3.svg");
+    			attr(img, "alt", "logo");
+    			add_location(img, file$3, 72, 6, 1705);
+    			attr(div0, "class", "logo svelte-ii2fev");
+    			add_location(div0, file$3, 71, 4, 1633);
+    			attr(h1, "class", "svelte-ii2fev");
+    			add_location(h1, file$3, 75, 6, 1837);
+    			attr(p, "class", "svelte-ii2fev");
+    			add_location(p, file$3, 76, 6, 1867);
+    			add_location(br1, file$3, 77, 6, 1911);
+    			add_location(br2, file$3, 80, 6, 1995);
+    			attr(div1, "class", "body");
+    			add_location(div1, file$3, 74, 4, 1763);
+    			attr(a1, "aria-label", "facebook link");
+    			attr(a1, "href", "https://facebook.com/bankamnodchivit");
+    			attr(a1, "class", "svelte-ii2fev");
+    			add_location(a1, file$3, 83, 6, 2093);
+    			attr(a2, "aria-label", "line link");
+    			attr(a2, "href", "https://facebook.com/bankamnodchivit");
+    			attr(a2, "class", "svelte-ii2fev");
+    			add_location(a2, file$3, 86, 6, 2240);
+    			attr(div2, "class", "footer");
+    			add_location(div2, file$3, 82, 4, 2017);
+    			attr(div3, "id", "slide1");
+    			attr(div3, "class", "svelte-ii2fev");
+    			add_location(div3, file$3, 65, 2, 1441);
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, div3, anchor);
+    			append(div3, a0);
+    			mount_component(icon0, a0, null);
+    			append(a0, t0);
+    			append(a0, span);
+    			append(div3, t2);
+    			append(div3, br0);
+    			append(div3, t3);
+    			append(div3, div0);
+    			append(div0, img);
+    			append(div3, t4);
+    			append(div3, div1);
+    			append(div1, h1);
+    			append(div1, t6);
+    			append(div1, p);
+    			append(div1, t8);
+    			append(div1, br1);
+    			append(div1, t9);
+    			append(div1, br2);
+    			append(div3, t10);
+    			append(div3, div2);
+    			append(div2, a1);
+    			mount_component(icon1, a1, null);
+    			append(div2, t11);
+    			append(div2, a2);
+    			mount_component(icon2, a2, null);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			var icon0_changes = {};
+    			if (changed.faPhoneAlt) icon0_changes.icon = faPhoneAlt;
+    			icon0.$set(icon0_changes);
+
+    			var icon1_changes = {};
+    			if (changed.faFacebookSquare) icon1_changes.icon = faFacebookSquare;
+    			icon1.$set(icon1_changes);
+
+    			var icon2_changes = {};
+    			if (changed.faLine) icon2_changes.icon = faLine;
+    			icon2.$set(icon2_changes);
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(icon0.$$.fragment, local);
+
+    			if (!div0_intro) {
+    				add_render_callback(() => {
+    					div0_intro = create_in_transition(div0, fly, { y: -20, duration: 700, delay: 500 });
+    					div0_intro.start();
+    				});
+    			}
+
+    			if (!div1_intro) {
+    				add_render_callback(() => {
+    					div1_intro = create_in_transition(div1, fly, { y: -20, duration: 1400, delay: 1000 });
+    					div1_intro.start();
+    				});
+    			}
+
+    			transition_in(icon1.$$.fragment, local);
+
+    			transition_in(icon2.$$.fragment, local);
+
+    			if (!div2_intro) {
+    				add_render_callback(() => {
+    					div2_intro = create_in_transition(div2, fly, { y: -20, duration: 1400, delay: 1700 });
+    					div2_intro.start();
+    				});
+    			}
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(icon0.$$.fragment, local);
+    			transition_out(icon1.$$.fragment, local);
+    			transition_out(icon2.$$.fragment, local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(div3);
+    			}
+
+    			destroy_component(icon0);
+
+    			destroy_component(icon1);
+
+    			destroy_component(icon2);
+    		}
+    	};
+    }
+
+    function create_fragment$4(ctx) {
+    	var if_block_anchor, current;
+
+    	var if_block = (ctx.visible) && create_if_block$2();
+
+    	return {
+    		c: function create() {
+    			if (if_block) if_block.c();
+    			if_block_anchor = empty();
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			if (if_block) if_block.m(target, anchor);
+    			insert(target, if_block_anchor, anchor);
+    			current = true;
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (ctx.visible) {
+    				if (if_block) {
+    					if_block.p(changed, ctx);
+    					transition_in(if_block, 1);
+    				} else {
+    					if_block = create_if_block$2();
+    					if_block.c();
+    					transition_in(if_block, 1);
+    					if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    				}
+    			} else if (if_block) {
+    				group_outros();
+    				transition_out(if_block, 1, 1, () => {
+    					if_block = null;
+    				});
+    				check_outros();
+    			}
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(if_block);
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(if_block);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			if (if_block) if_block.d(detaching);
+
+    			if (detaching) {
+    				detach(if_block_anchor);
+    			}
+    		}
+    	};
+    }
+
+    function instance$4($$self, $$props, $$invalidate) {
+    	
+      let { visible = true } = $$props;
+
+    	const writable_props = ['visible'];
+    	Object.keys($$props).forEach(key => {
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<Slide1> was created with unknown prop '${key}'`);
+    	});
+
+    	$$self.$set = $$props => {
+    		if ('visible' in $$props) $$invalidate('visible', visible = $$props.visible);
+    	};
+
+    	return { visible };
+    }
+
+    class Slide1 extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$4, create_fragment$4, safe_not_equal, ["visible"]);
+    	}
+
+    	get visible() {
+    		throw new Error("<Slide1>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set visible(value) {
+    		throw new Error("<Slide1>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
+    /* src/views/Slide2.svelte generated by Svelte v3.9.1 */
+
+    const file$4 = "src/views/Slide2.svelte";
+
+    // (65:0) {#if visible}
+    function create_if_block$3(ctx) {
+    	var section, div0, img, div0_intro, t0, div1, t1, br0, t2, br1, t3, div1_intro;
+
+    	return {
+    		c: function create() {
+    			section = element("section");
+    			div0 = element("div");
+    			img = element("img");
+    			t0 = space();
+    			div1 = element("div");
+    			t1 = text("ความยากดีมีจน ความสุขความทุกข์\n      ");
+    			br0 = element("br");
+    			t2 = text("\n      มีผลกำเนิดจากบ้านที่เราอยู่\n      ");
+    			br1 = element("br");
+    			t3 = text("\n      มีนคือความลับที่หลายคนไม่เคยรู้ และคิดไม่ถึง");
+    			attr(img, "src", "img/yotpone.webp");
+    			attr(img, "alt", "people yotpone");
+    			attr(img, "class", "svelte-kgv5zi");
+    			add_location(img, file$4, 67, 6, 1772);
+    			attr(div0, "class", "profile svelte-kgv5zi");
+    			add_location(div0, file$4, 66, 4, 1697);
+    			add_location(br0, file$4, 71, 6, 1950);
+    			add_location(br1, file$4, 73, 6, 1997);
+    			attr(div1, "class", "quote svelte-kgv5zi");
+    			add_location(div1, file$4, 69, 4, 1839);
+    			attr(section, "id", "slide2");
+    			attr(section, "class", "svelte-kgv5zi");
+    			add_location(section, file$4, 65, 2, 1671);
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, section, anchor);
+    			append(section, div0);
+    			append(div0, img);
+    			append(section, t0);
+    			append(section, div1);
+    			append(div1, t1);
+    			append(div1, br0);
+    			append(div1, t2);
+    			append(div1, br1);
+    			append(div1, t3);
+    		},
+
+    		i: function intro(local) {
+    			if (!div0_intro) {
+    				add_render_callback(() => {
+    					div0_intro = create_in_transition(div0, fly, { y: 20, duration: 2400, delay: 500 });
+    					div0_intro.start();
+    				});
+    			}
+
+    			if (!div1_intro) {
+    				add_render_callback(() => {
+    					div1_intro = create_in_transition(div1, fly, { y: -20, duration: 2400, delay: 700 });
+    					div1_intro.start();
+    				});
+    			}
+    		},
+
+    		o: noop,
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(section);
+    			}
+    		}
+    	};
+    }
+
+    function create_fragment$5(ctx) {
+    	var if_block_anchor;
+
+    	var if_block = (ctx.visible) && create_if_block$3();
+
+    	return {
+    		c: function create() {
+    			if (if_block) if_block.c();
+    			if_block_anchor = empty();
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			if (if_block) if_block.m(target, anchor);
+    			insert(target, if_block_anchor, anchor);
+    		},
+
+    		p: function update(changed, ctx) {
+    			if (ctx.visible) {
+    				if (!if_block) {
+    					if_block = create_if_block$3();
+    					if_block.c();
+    					transition_in(if_block, 1);
+    					if_block.m(if_block_anchor.parentNode, if_block_anchor);
+    				} else {
+    									transition_in(if_block, 1);
+    				}
+    			} else if (if_block) {
+    				if_block.d(1);
+    				if_block = null;
+    			}
+    		},
+
+    		i: function intro(local) {
+    			transition_in(if_block);
+    		},
+
+    		o: noop,
+
+    		d: function destroy(detaching) {
+    			if (if_block) if_block.d(detaching);
+
+    			if (detaching) {
+    				detach(if_block_anchor);
+    			}
+    		}
+    	};
+    }
+
+    function instance$5($$self, $$props, $$invalidate) {
+    	
+      let { visible = true } = $$props;
+
+    	const writable_props = ['visible'];
+    	Object.keys($$props).forEach(key => {
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<Slide2> was created with unknown prop '${key}'`);
+    	});
+
+    	$$self.$set = $$props => {
+    		if ('visible' in $$props) $$invalidate('visible', visible = $$props.visible);
+    	};
+
+    	return { visible };
+    }
+
+    class Slide2 extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, instance$5, create_fragment$5, safe_not_equal, ["visible"]);
+    	}
+
+    	get visible() {
+    		throw new Error("<Slide2>: Props cannot be read directly from the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+
+    	set visible(value) {
+    		throw new Error("<Slide2>: Props cannot be set directly on the component instance unless compiling with 'accessors: true' or '<svelte:options accessors/>'");
+    	}
+    }
+
+    var waterfall = createCommonjsModule(function (module) {
+    /*!
+       --------------------------------
+       Waterfall.js
+       --------------------------------
+       + https://github.com/raphamorim/waterfall
+       + version 1.1.0
+       + Copyright 2016 Raphael Amorim & Israel Teixeira
+       + Licensed under the MIT license
+       + Documentation: https://github.com/raphamorim/waterfall
+    */
+
+    (function(root, factory) {
+      if ( module.exports) {
+        module.exports = factory;
+      } else {
+        root.waterfall = factory;
+      }
+    })(commonjsGlobal, function waterfall(container) {
+      if (typeof container === 'string') {
+        container = document.querySelector(container);
+      }
+
+      function style(el) {
+        return window.getComputedStyle(el);
+      }
+
+      function margin(name, el) {
+        return parseFloat(style(el)['margin' + name]) || 0;
+      }
+
+      function px(n) {
+        return parseFloat(n) + 'px';
+      }
+      function y(el) {
+        return parseFloat(el.style.top);
+      }
+      function x(el) {
+        return parseFloat(el.style.left);
+      }
+      function width(el) {
+        return parseFloat(style(el).width);
+      }
+      function height(el) {
+        return parseFloat(style(el).height);
+      }
+      function bottom(el) {
+        return y(el) + height(el) + margin('Bottom', el);
+      }
+      function right(el) {
+        return x(el) + width(el) + margin('Right', el);
+      }
+
+      function sort(l) {
+        l = l.sort(function(a, b) {
+          var bottomDiff = bottom(b) - bottom(a);
+          return bottomDiff || x(b) - x(a);
+        });
+      }
+
+      function Boundary(firstRow) {
+        var els = firstRow;
+        sort(els);
+
+        this.add = function(el) {
+          els.push(el);
+          sort(els);
+          els.pop();
+        };
+
+        this.min = function() {
+          return els[els.length - 1];
+        };
+        this.max = function() {
+          return els[0];
+        };
+      }
+
+      function placeEl(el, top, left) {
+        el.style.position = 'absolute';
+        el.style.top = px(top);
+        el.style.left = px(left);
+      }
+
+      function placeFirstElement(el) {
+        placeEl(el, 0, margin('Left', el));
+      }
+
+      function placeAtTheFirstLine(prev, el) {
+        placeEl(el, prev.style.top, right(prev) + margin('Left', el));
+      }
+
+      function placeAtTheSmallestColumn(minEl, el) {
+        placeEl(el, bottom(minEl) + margin('Top', el), x(minEl));
+      }
+
+      function adjustContainer(container, maxEl) {
+        container.style.position = 'relative';
+        container.style.height = px(bottom(maxEl) + margin('Bottom', maxEl));
+      }
+
+      function thereIsSpace(els, i) {
+        return right(els[i - 1]) + width(els[i]) <= width(container);
+      }
+
+      var els = container.children;
+      console.log(els);
+
+      if (els.length) {
+        placeFirstElement(els[0]);
+      }
+
+      for (var i = 1; i < els.length && thereIsSpace(els, i); i++) {
+        placeAtTheFirstLine(els[i - 1], els[i]);
+      }
+
+      var firstRow = [].slice.call(els, 0, i);
+      var boundary = new Boundary(firstRow);
+
+      for (; i < els.length; i++) {
+        placeAtTheSmallestColumn(boundary.min(), els[i]);
+        boundary.add(els[i]);
+      }
+
+      adjustContainer(container, boundary.max());
+    });
+    });
+
+    /* src/views/Slide3.svelte generated by Svelte v3.9.1 */
+    const { console: console_1 } = globals;
+
+    const file$5 = "src/views/Slide3.svelte";
 
     function get_each_context(ctx, list, i) {
     	const child_ctx = Object.create(ctx);
@@ -20638,8 +21304,8 @@ var app = (function () {
     	return child_ctx;
     }
 
-    // (108:2) {#if visible}
-    function create_if_block$2(ctx) {
+    // (120:2) {#if visible}
+    function create_if_block$4(ctx) {
     	var div1, div0, span0, t1, span1, t3, span2, t5, span3, t7, span4, t9, br0, t10, br1, t11, t12, br2, t13, br3, dispose;
 
     	var if_block = (ctx.$contents) && create_if_block_1$1(ctx);
@@ -20672,31 +21338,31 @@ var app = (function () {
     			br2 = element("br");
     			t13 = space();
     			br3 = element("br");
-    			attr(span0, "class", "svelte-l041rt");
+    			attr(span0, "class", "svelte-1jpt9n5");
     			toggle_class(span0, "active", ctx.tab == 'showcase');
-    			add_location(span0, file$3, 110, 8, 2951);
+    			add_location(span0, file$5, 122, 8, 3228);
     			set_style(span1, "font-size", "2rem");
     			set_style(span1, "font-weight", "lighter");
-    			attr(span1, "class", "svelte-l041rt");
-    			add_location(span1, file$3, 115, 8, 3096);
-    			attr(span2, "class", "svelte-l041rt");
+    			attr(span1, "class", "svelte-1jpt9n5");
+    			add_location(span1, file$5, 127, 8, 3373);
+    			attr(span2, "class", "svelte-1jpt9n5");
     			toggle_class(span2, "active", ctx.tab == 'posts');
-    			add_location(span2, file$3, 116, 8, 3165);
+    			add_location(span2, file$5, 128, 8, 3442);
     			set_style(span3, "font-size", "2rem");
     			set_style(span3, "font-weight", "lighter");
-    			attr(span3, "class", "svelte-l041rt");
-    			add_location(span3, file$3, 119, 8, 3276);
-    			attr(span4, "class", "svelte-l041rt");
+    			attr(span3, "class", "svelte-1jpt9n5");
+    			add_location(span3, file$5, 131, 8, 3553);
+    			attr(span4, "class", "svelte-1jpt9n5");
     			toggle_class(span4, "active", ctx.tab == 'fixed');
-    			add_location(span4, file$3, 120, 8, 3345);
-    			attr(div0, "class", "title svelte-l041rt");
-    			add_location(div0, file$3, 109, 6, 2923);
-    			add_location(br0, file$3, 124, 6, 3472);
-    			add_location(br1, file$3, 125, 6, 3485);
-    			add_location(br2, file$3, 175, 6, 5179);
-    			add_location(br3, file$3, 176, 6, 5192);
-    			attr(div1, "class", "container svelte-l041rt");
-    			add_location(div1, file$3, 108, 4, 2893);
+    			add_location(span4, file$5, 132, 8, 3622);
+    			attr(div0, "class", "title svelte-1jpt9n5");
+    			add_location(div0, file$5, 121, 6, 3200);
+    			add_location(br0, file$5, 136, 6, 3749);
+    			add_location(br1, file$5, 137, 6, 3762);
+    			add_location(br2, file$5, 187, 6, 5456);
+    			add_location(br3, file$5, 188, 6, 5469);
+    			attr(div1, "class", "container svelte-1jpt9n5");
+    			add_location(div1, file$5, 120, 4, 3170);
 
     			dispose = [
     				listen(span0, "click", ctx.click_handler),
@@ -20761,7 +21427,7 @@ var app = (function () {
     	};
     }
 
-    // (127:6) {#if $contents}
+    // (139:6) {#if $contents}
     function create_if_block_1$1(ctx) {
     	var div;
 
@@ -20781,7 +21447,7 @@ var app = (function () {
     				each_blocks[i].c();
     			}
     			attr(div, "class", "content-item-block");
-    			add_location(div, file$3, 127, 8, 3522);
+    			add_location(div, file$5, 139, 8, 3799);
     		},
 
     		m: function mount(target, anchor) {
@@ -20825,7 +21491,7 @@ var app = (function () {
     	};
     }
 
-    // (129:10) {#each _.values($contents[tab]) as content}
+    // (141:10) {#each _.values($contents[tab]) as content}
     function create_each_block(ctx) {
     	var div2, div0, img, img_src_value, img_alt_value, t0, div1, button, t2, dispose;
 
@@ -20845,16 +21511,16 @@ var app = (function () {
     			t2 = space();
     			attr(img, "src", img_src_value = ctx.content.img);
     			attr(img, "alt", img_alt_value = ctx.content.img);
-    			attr(img, "class", "svelte-l041rt");
-    			add_location(img, file$3, 133, 16, 3783);
-    			attr(div0, "class", "image svelte-l041rt");
-    			add_location(div0, file$3, 132, 14, 3747);
-    			attr(button, "class", "readmore svelte-l041rt");
-    			add_location(button, file$3, 137, 16, 3941);
-    			attr(div1, "class", "content svelte-l041rt");
-    			add_location(div1, file$3, 135, 14, 3862);
-    			attr(div2, "class", "card svelte-l041rt");
-    			add_location(div2, file$3, 129, 12, 3621);
+    			attr(img, "class", "svelte-1jpt9n5");
+    			add_location(img, file$5, 145, 16, 4060);
+    			attr(div0, "class", "image svelte-1jpt9n5");
+    			add_location(div0, file$5, 144, 14, 4024);
+    			attr(button, "class", "readmore svelte-1jpt9n5");
+    			add_location(button, file$5, 149, 16, 4218);
+    			attr(div1, "class", "content svelte-1jpt9n5");
+    			add_location(div1, file$5, 147, 14, 4139);
+    			attr(div2, "class", "card svelte-1jpt9n5");
+    			add_location(div2, file$5, 141, 12, 3898);
     			dispose = listen(div2, "click", click_handler_3);
     		},
 
@@ -20889,18 +21555,18 @@ var app = (function () {
     	};
     }
 
-    function create_fragment$4(ctx) {
+    function create_fragment$6(ctx) {
     	var section;
 
-    	var if_block = (ctx.visible) && create_if_block$2(ctx);
+    	var if_block = (ctx.visible) && create_if_block$4(ctx);
 
     	return {
     		c: function create() {
     			section = element("section");
     			if (if_block) if_block.c();
     			attr(section, "id", "slide3");
-    			attr(section, "class", "svelte-l041rt");
-    			add_location(section, file$3, 106, 0, 2851);
+    			attr(section, "class", "svelte-1jpt9n5");
+    			add_location(section, file$5, 118, 0, 3128);
     		},
 
     		l: function claim(nodes) {
@@ -20917,7 +21583,7 @@ var app = (function () {
     				if (if_block) {
     					if_block.p(changed, ctx);
     				} else {
-    					if_block = create_if_block$2(ctx);
+    					if_block = create_if_block$4(ctx);
     					if_block.c();
     					if_block.m(section, null);
     				}
@@ -20940,20 +21606,34 @@ var app = (function () {
     	};
     }
 
-    function instance$4($$self, $$props, $$invalidate) {
+    function instance$6($$self, $$props, $$invalidate) {
     	let $contents;
 
     	validate_store(contents, 'contents');
     	component_subscribe($$self, contents, $$value => { $contents = $$value; $$invalidate('$contents', $contents); });
 
     	
+
+      onMount(async () => {
+        while (1) {
+          // await tick();
+          setTimeout(() => {
+            console.log("water");
+            console.log($contents);
+            console.log(document.querySelector(".content-item-block"));
+          }, 1000);
+          break;
+        }
+        waterfall(".content-item-block");
+      });
+
       let { visible = true } = $$props;
       let tab = "posts";
       const [send, receive] = crossfade({ duration: 1000 });
 
     	const writable_props = ['visible'];
     	Object.keys($$props).forEach(key => {
-    		if (!writable_props.includes(key) && !key.startsWith('$$')) console.warn(`<Slide3> was created with unknown prop '${key}'`);
+    		if (!writable_props.includes(key) && !key.startsWith('$$')) console_1.warn(`<Slide3> was created with unknown prop '${key}'`);
     	});
 
     	function click_handler() {
@@ -20996,7 +21676,7 @@ var app = (function () {
     class Slide3 extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$4, create_fragment$4, safe_not_equal, ["visible"]);
+    		init(this, options, instance$6, create_fragment$6, safe_not_equal, ["visible"]);
     	}
 
     	get visible() {
@@ -21010,11 +21690,13 @@ var app = (function () {
 
     /* src/views/Modal.svelte generated by Svelte v3.9.1 */
 
-    const file$4 = "src/views/Modal.svelte";
+    const file$6 = "src/views/Modal.svelte";
 
-    // (178:6) {:else}
+    // (164:6) {:else}
     function create_else_block$1(ctx) {
-    	var div1, div0, img, img_src_value, img_alt_value, t, html_tag, raw_value = ctx.$modalData.html + "", div1_transition, current;
+    	var div1, div0, img, img_src_value, img_alt_value, t, div1_transition, current;
+
+    	var if_block = (ctx.$modalData.html) && create_if_block_1$2(ctx);
 
     	return {
     		c: function create() {
@@ -21022,15 +21704,15 @@ var app = (function () {
     			div0 = element("div");
     			img = element("img");
     			t = space();
+    			if (if_block) if_block.c();
     			attr(img, "src", img_src_value = ctx.$modalData.img);
     			attr(img, "alt", img_alt_value = ctx.$modalData.img);
-    			add_location(img, file$4, 189, 12, 4878);
-    			html_tag = new HtmlTag(raw_value, null);
+    			add_location(img, file$6, 175, 12, 4255);
     			attr(div0, "class", "post svelte-17gsjud");
-    			add_location(div0, file$4, 183, 10, 4643);
+    			add_location(div0, file$6, 169, 10, 4020);
     			attr(div1, "id", "post-content");
     			attr(div1, "class", "content svelte-17gsjud");
-    			add_location(div1, file$4, 178, 8, 4526);
+    			add_location(div1, file$6, 164, 8, 3903);
     		},
 
     		m: function mount(target, anchor) {
@@ -21038,7 +21720,7 @@ var app = (function () {
     			append(div1, div0);
     			append(div0, img);
     			append(div0, t);
-    			html_tag.m(div0);
+    			if (if_block) if_block.m(div0, null);
     			current = true;
     		},
 
@@ -21051,8 +21733,17 @@ var app = (function () {
     				attr(img, "alt", img_alt_value);
     			}
 
-    			if ((!current || changed.$modalData) && raw_value !== (raw_value = ctx.$modalData.html + "")) {
-    				html_tag.p(raw_value);
+    			if (ctx.$modalData.html) {
+    				if (if_block) {
+    					if_block.p(changed, ctx);
+    				} else {
+    					if_block = create_if_block_1$2(ctx);
+    					if_block.c();
+    					if_block.m(div0, null);
+    				}
+    			} else if (if_block) {
+    				if_block.d(1);
+    				if_block = null;
     			}
     		},
 
@@ -21076,14 +21767,19 @@ var app = (function () {
     		d: function destroy(detaching) {
     			if (detaching) {
     				detach(div1);
+    			}
+
+    			if (if_block) if_block.d();
+
+    			if (detaching) {
     				if (div1_transition) div1_transition.end();
     			}
     		}
     	};
     }
 
-    // (175:6) {#if !$modalData}
-    function create_if_block$3(ctx) {
+    // (162:6) {#if !$modalData}
+    function create_if_block$5(ctx) {
     	var t;
 
     	return {
@@ -21107,7 +21803,34 @@ var app = (function () {
     	};
     }
 
-    function create_fragment$5(ctx) {
+    // (177:12) {#if $modalData.html}
+    function create_if_block_1$2(ctx) {
+    	var html_tag, raw_value = ctx.$modalData.html + "";
+
+    	return {
+    		c: function create() {
+    			html_tag = new HtmlTag(raw_value, null);
+    		},
+
+    		m: function mount(target, anchor) {
+    			html_tag.m(target, anchor);
+    		},
+
+    		p: function update(changed, ctx) {
+    			if ((changed.$modalData) && raw_value !== (raw_value = ctx.$modalData.html + "")) {
+    				html_tag.p(raw_value);
+    			}
+    		},
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				html_tag.d();
+    			}
+    		}
+    	};
+    }
+
+    function create_fragment$7(ctx) {
     	var div3, div0, t0, div2, div1, a0, t1, a1, t2, a2, t3, current_block_type_index, if_block, current, dispose;
 
     	var icon0 = new Icon({
@@ -21138,7 +21861,7 @@ var app = (function () {
     	const default_slot = create_slot(default_slot_template, ctx, null);
 
     	var if_block_creators = [
-    		create_if_block$3,
+    		create_if_block$5,
     		create_else_block$1
     	];
 
@@ -21175,23 +21898,26 @@ var app = (function () {
 
     			if (default_slot) default_slot.c();
     			attr(div0, "class", "background svelte-17gsjud");
-    			add_location(div0, file$4, 146, 2, 3255);
+    			add_location(div0, file$6, 147, 2, 3256);
+    			attr(a0, "href", "#");
     			attr(a0, "class", "svelte-17gsjud");
-    			add_location(a0, file$4, 149, 6, 3402);
+    			add_location(a0, file$6, 150, 6, 3403);
+    			attr(a1, "href", "#");
     			attr(a1, "class", "svelte-17gsjud");
-    			add_location(a1, file$4, 163, 6, 3910);
+    			add_location(a1, file$6, 153, 6, 3541);
+    			attr(a2, "href", "#");
     			attr(a2, "class", "svelte-17gsjud");
-    			add_location(a2, file$4, 166, 6, 4036);
+    			add_location(a2, file$6, 156, 6, 3676);
     			attr(div1, "class", "nav dark svelte-17gsjud");
-    			add_location(div1, file$4, 148, 4, 3373);
+    			add_location(div1, file$6, 149, 4, 3374);
 
     			attr(div2, "id", "content-wrapper");
     			set_style(div2, "overflow", "auto");
     			attr(div2, "class", "svelte-17gsjud");
-    			add_location(div2, file$4, 147, 2, 3319);
+    			add_location(div2, file$6, 148, 2, 3320);
     			attr(div3, "class", "modal svelte-17gsjud");
     			toggle_class(div3, "is-active", !!ctx.$modalData);
-    			add_location(div3, file$4, 142, 0, 3155);
+    			add_location(div3, file$6, 143, 0, 3156);
 
     			dispose = [
     				listen(window, "keydown", handleKey),
@@ -21339,7 +22065,7 @@ var app = (function () {
       }
     }
 
-    function instance$5($$self, $$props, $$invalidate) {
+    function instance$7($$self, $$props, $$invalidate) {
     	let $modalData;
 
     	validate_store(modalData, 'modalData');
@@ -21382,104 +22108,59 @@ var app = (function () {
     class Modal extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$5, create_fragment$5, safe_not_equal, []);
+    		init(this, options, instance$7, create_fragment$7, safe_not_equal, []);
     	}
     }
 
-    function is_date(obj) {
-        return Object.prototype.toString.call(obj) === '[object Date]';
-    }
-
-    function get_interpolator(a, b) {
-        if (a === b || a !== a)
-            return () => a;
-        const type = typeof a;
-        if (type !== typeof b || Array.isArray(a) !== Array.isArray(b)) {
-            throw new Error('Cannot interpolate values of different type');
-        }
-        if (Array.isArray(a)) {
-            const arr = b.map((bi, i) => {
-                return get_interpolator(a[i], bi);
-            });
-            return t => arr.map(fn => fn(t));
-        }
-        if (type === 'object') {
-            if (!a || !b)
-                throw new Error('Object cannot be null');
-            if (is_date(a) && is_date(b)) {
-                a = a.getTime();
-                b = b.getTime();
-                const delta = b - a;
-                return t => new Date(a + t * delta);
-            }
-            const keys = Object.keys(b);
-            const interpolators = {};
-            keys.forEach(key => {
-                interpolators[key] = get_interpolator(a[key], b[key]);
-            });
-            return t => {
-                const result = {};
-                keys.forEach(key => {
-                    result[key] = interpolators[key](t);
-                });
-                return result;
-            };
-        }
-        if (type === 'number') {
-            const delta = b - a;
-            return t => a + t * delta;
-        }
-        throw new Error(`Cannot interpolate ${type} values`);
-    }
-    function tweened(value, defaults = {}) {
-        const store = writable(value);
-        let task;
-        let target_value = value;
-        function set(new_value, opts) {
-            target_value = new_value;
-            let previous_task = task;
-            let started = false;
-            let { delay = 0, duration = 400, easing = identity, interpolate = get_interpolator } = assign(assign({}, defaults), opts);
-            const start = now() + delay;
-            let fn;
-            task = loop(now => {
-                if (now < start)
-                    return true;
-                if (!started) {
-                    fn = interpolate(value, new_value);
-                    if (typeof duration === 'function')
-                        duration = duration(value, new_value);
-                    started = true;
-                }
-                if (previous_task) {
-                    previous_task.abort();
-                    previous_task = null;
-                }
-                const elapsed = now - start;
-                if (elapsed > duration) {
-                    store.set(value = new_value);
-                    return false;
-                }
-                // @ts-ignore
-                store.set(value = fn(easing(elapsed / duration)));
-                return true;
-            });
-            return task.promise;
-        }
-        return {
-            set,
-            update: (fn, opts) => set(fn(target_value, value), opts),
-            subscribe: store.subscribe
-        };
-    }
-
     /* src/views/Home.svelte generated by Svelte v3.9.1 */
-    const { window: window_1 } = globals;
+    const { document: document_1 } = globals;
 
-    const file$5 = "src/views/Home.svelte";
+    const file$7 = "src/views/Home.svelte";
 
-    function create_fragment$6(ctx) {
-    	var div1, div0, t, current, dispose;
+    // (86:4) {#if showSlide2}
+    function create_if_block$6(ctx) {
+    	var current;
+
+    	var slide2 = new Slide2({ $$inline: true });
+
+    	return {
+    		c: function create() {
+    			slide2.$$.fragment.c();
+    		},
+
+    		m: function mount(target, anchor) {
+    			mount_component(slide2, target, anchor);
+    			current = true;
+    		},
+
+    		i: function intro(local) {
+    			if (current) return;
+    			transition_in(slide2.$$.fragment, local);
+
+    			current = true;
+    		},
+
+    		o: function outro(local) {
+    			transition_out(slide2.$$.fragment, local);
+    			current = false;
+    		},
+
+    		d: function destroy(detaching) {
+    			destroy_component(slide2, detaching);
+    		}
+    	};
+    }
+
+    function create_fragment$8(ctx) {
+    	var t0, div3, div0, t1, div1, t2, div2, t3, current;
+
+    	document_1.body.addEventListener("wheel", ctx.wheel);
+
+    	document_1.body.addEventListener("touchmove", ctx.wheel);
+
+    	var slide1 = new Slide1({ $$inline: true });
+
+    	var if_block = (ctx.showSlide2) && create_if_block$6();
 
     	var slide3 = new Slide3({ $$inline: true });
 
@@ -21487,20 +22168,26 @@ var app = (function () {
 
     	return {
     		c: function create() {
-    			div1 = element("div");
+    			t0 = space();
+    			div3 = element("div");
     			div0 = element("div");
+    			slide1.$$.fragment.c();
+    			t1 = space();
+    			div1 = element("div");
+    			if (if_block) if_block.c();
+    			t2 = space();
+    			div2 = element("div");
     			slide3.$$.fragment.c();
-    			t = space();
+    			t3 = space();
     			modal.$$.fragment.c();
-    			attr(div0, "class", "section fp-auto-height-responsive fp-scrollable svelte-12u97cv");
-    			add_location(div0, file$5, 95, 2, 2623);
-    			attr(div1, "id", "fullpage");
-    			add_location(div1, file$5, 88, 0, 2496);
-
-    			dispose = [
-    				listen(window_1, "scroll", prevent_default(ctx.scroll)),
-    				listen(window_1, "touchmove", prevent_default(ctx.touchmove_handler))
-    			];
+    			attr(div0, "class", "section svelte-xaq8dv");
+    			add_location(div0, file$7, 81, 2, 2232);
+    			attr(div1, "class", "section svelte-xaq8dv");
+    			add_location(div1, file$7, 84, 2, 2280);
+    			attr(div2, "class", "section fp-auto-height-responsive fp-scrollable svelte-xaq8dv");
+    			add_location(div2, file$7, 89, 2, 2361);
+    			attr(div3, "id", "fullpage");
+    			add_location(div3, file$7, 80, 0, 2210);
     		},
 
     		l: function claim(nodes) {
@@ -21508,18 +22195,46 @@ var app = (function () {
     		},
 
     		m: function mount(target, anchor) {
-    			insert(target, div1, anchor);
-    			append(div1, div0);
-    			mount_component(slide3, div0, null);
-    			insert(target, t, anchor);
+    			insert(target, t0, anchor);
+    			insert(target, div3, anchor);
+    			append(div3, div0);
+    			mount_component(slide1, div0, null);
+    			append(div3, t1);
+    			append(div3, div1);
+    			if (if_block) if_block.m(div1, null);
+    			append(div3, t2);
+    			append(div3, div2);
+    			mount_component(slide3, div2, null);
+    			insert(target, t3, anchor);
     			mount_component(modal, target, anchor);
     			current = true;
     		},
 
-    		p: noop,
+    		p: function update(changed, ctx) {
+    			if (ctx.showSlide2) {
+    				if (!if_block) {
+    					if_block = create_if_block$6();
+    					if_block.c();
+    					transition_in(if_block, 1);
+    					if_block.m(div1, null);
+    				} else {
+    									transition_in(if_block, 1);
+    				}
+    			} else if (if_block) {
+    				group_outros();
+    				transition_out(if_block, 1, 1, () => {
+    					if_block = null;
+    				});
+    				check_outros();
+    			}
+    		},
 
     		i: function intro(local) {
     			if (current) return;
+    			transition_in(slide1.$$.fragment, local);
+
+    			transition_in(if_block);
+
     			transition_in(slide3.$$.fragment, local);
 
     			transition_in(modal.$$.fragment, local);
@@ -21528,27 +22243,40 @@ var app = (function () {
     		},
 
     		o: function outro(local) {
+    			transition_out(slide1.$$.fragment, local);
+    			transition_out(if_block);
     			transition_out(slide3.$$.fragment, local);
     			transition_out(modal.$$.fragment, local);
     			current = false;
     		},
 
     		d: function destroy(detaching) {
+    			document_1.body.removeEventListener("wheel", ctx.wheel);
+
+    			document_1.body.removeEventListener("touchmove", ctx.wheel);
+
     			if (detaching) {
-    				detach(div1);
+    				detach(t0);
+    				detach(div3);
     			}
+
+    			destroy_component(slide1);
+
+    			if (if_block) if_block.d();
 
     			destroy_component(slide3);
 
     			if (detaching) {
-    				detach(t);
+    				detach(t3);
     			}
 
     			destroy_component(modal, detaching);
-
-    			run_all(dispose);
     		}
     	};
+    }
+
+    function allowScroll(allow) {
+      document.body.classList[allow ? "remove" : "add"]("stop-scrolling");
     }
 
     function getScrollTop() {
@@ -21556,79 +22284,55 @@ var app = (function () {
       return (window.pageYOffset || doc.scrollTop) - (doc.clientTop || 0);
     }
 
-    function instance$6($$self, $$props, $$invalidate) {
-    	let $screen, $modalData;
+    function getFullHeight() {
+      return window.innerHeight;
+    }
 
-    	validate_store(modalData, 'modalData');
-    	component_subscribe($$self, modalData, $$value => { $modalData = $$value; $$invalidate('$modalData', $modalData); });
-
+    function instance$8($$self, $$props, $$invalidate) {
     	
 
-      const screen = tweened(0, {
-        duration: 1000,
-        easing: cubicInOut
-      }); validate_store(screen, 'screen'); component_subscribe($$self, screen, $$value => { $screen = $$value; $$invalidate('$screen', $screen); });
-
+      onMount(() => {
+        allowScroll(false);
+      });
       let isScrolling = false;
-      async function scroll(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!isScrolling && !$modalData) {
-          console.log("start Scroll");
+      let showSlide2 = false;
+
+      function wheel(e) {
+        const down = e.deltaY > 0;
+        if (getScrollTop() >= getFullHeight() * 2 + 10) return;
+        if (!isScrolling) {
+          allowScroll(false);
           isScrolling = true;
-          const screenHeight = window.innerHeight;
-          const scrollTop = getScrollTop();
-          const currSection = lodash.round(scrollTop / screenHeight);
-
-          if (scrollTop > $screen && currSection < 2) {
-            screen.set((currSection + 1) * screenHeight);
-            document.body.classList.add("stop-scrolling");
-          } else if (scrollTop < $screen && currSection < 3) {
-            screen.set((currSection - 1) * screenHeight);
-            document.body.classList.add("stop-scrolling");
-          } else {
-            isScrolling = false;
-            return;
+          document.body.style.transform = `translateY(${
+        down ? "-100vh" : lodash.min([getFullHeight(), getScrollTop()]) + "px"
+      })`;
+          if (down) {
+            $$invalidate('showSlide2', showSlide2 = true);
           }
-          clearTimeout(scrollId);
-          var scrollId = setTimeout(function() {
+          setTimeout(async () => {
+            allowScroll(true);
+            document.body.style.transform = "";
+            const locY = getScrollTop() + (down ? 1 : -1) * getFullHeight();
+            window.scrollTo(0, locY);
             isScrolling = false;
-            document.body.classList.remove("stop-scrolling");
-          }, 1566);
+            allowScroll(false);
+            await tick();
+            console.log(getScrollTop(), 2 * getFullHeight());
+            if (down && getScrollTop() >= 2 * getFullHeight() - 10) {
+              isScrolling = true;
+              allowScroll(true);
+            }
+          }, 1550);
         }
-        // await tick();
-        // yOffset = scrollTop;
-        // const rect = document.body.getBoundingClientRect()
-        // console.log(scrollTop, rect)
-        // if (scrollTop > 1000) {
-        //   window.scroll(0, 100)
-        // }
-        // window.pageYOffset = window.pageYOffset % 1000
-
-        // console.log(e)
-        // console.log(document.body.getBoundingClientRect())
-        // console.log(document.body)
-        // console.log(document.body.scrollTop)
-        // console.log(document.body.scrollTop)
-
-        // ).top > scrollPos
       }
 
-    	function touchmove_handler(event) {
-    		bubble($$self, event);
-    	}
-
-    	$$self.$$.update = ($$dirty = { $screen: 1 }) => {
-    		if ($$dirty.$screen) { window.scrollTo(0, $screen); }
-    	};
-
-    	return { screen, scroll, touchmove_handler };
+    	return { showSlide2, wheel };
     }
 
     class Home extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$6, create_fragment$6, safe_not_equal, []);
+    		init(this, options, instance$8, create_fragment$8, safe_not_equal, []);
     	}
     }
 
@@ -21703,7 +22407,7 @@ var app = (function () {
     	};
     }
 
-    function create_fragment$7(ctx) {
+    function create_fragment$9(ctx) {
     	var current;
 
     	var router = new Router_1({
@@ -21755,7 +22459,7 @@ var app = (function () {
     class App extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, null, create_fragment$7, safe_not_equal, []);
+    		init(this, options, null, create_fragment$9, safe_not_equal, []);
     	}
     }
 
@@ -21765,10 +22469,11 @@ var app = (function () {
         name: 'world'
       }
     });
-
-    navigator.serviceWorker.getRegistrations().then(r => {
-      return Promise.all(r.map(reg => reg.unregister()));
-    });
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(r => {
+        return Promise.all(r.map(reg => reg.unregister()));
+      });
+    }
 
     return app;
 

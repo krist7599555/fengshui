@@ -8,7 +8,8 @@ const app = new App({
 });
 
 export default app;
-
-navigator.serviceWorker.getRegistrations().then(r => {
-  return Promise.all(r.map(reg => reg.unregister()));
-});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(r => {
+    return Promise.all(r.map(reg => reg.unregister()));
+  });
+}
