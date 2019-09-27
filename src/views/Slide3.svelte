@@ -5,20 +5,20 @@
   import { contents, modalData } from './store.js'
   import { crossfade } from 'svelte/transition'
   import _ from 'lodash'
-  import waterfall from './waterfall'
 
-  onMount(async () => {
-    while (1) {
-      // await tick();
-      setTimeout(() => {
-        console.log('water')
-        console.log($contents)
-        console.log(document.querySelector('.content-item-block'))
-      }, 1000)
-      break
-    }
-    waterfall('.content-item-block')
-  })
+  // import waterfall from './waterfall'
+  // onMount(async () => {
+  //   while (1) {
+  //     // await tick();
+  //     setTimeout(() => {
+  //       console.log('water')
+  //       console.log($contents)
+  //       console.log(document.querySelector('.content-item-block'))
+  //     }, 1000)
+  //     break
+  //   }
+  //   waterfall('.content-item-block')
+  // })
 
   export let visible = true
   let tab = 'posts'
