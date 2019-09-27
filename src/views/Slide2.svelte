@@ -1,8 +1,23 @@
 <script>
-  import { tick, getContext, createEventDispatcher } from "svelte";
-  import { fly } from "svelte/transition";
-  export let visible = true;
+  import { tick, getContext, createEventDispatcher } from 'svelte'
+  import { fly } from 'svelte/transition'
+  export let visible = true
 </script>
+
+{#if visible}
+  <section id="slide2">
+    <div class="profile" in:fly={{ y: 20, duration: 2400, delay: 500 }}>
+      <img src="img/yotpone.webp" alt="people yotpone" />
+    </div>
+    <div class="quote" in:fly={{ y: -20, duration: 2400, delay: 700 }}>
+      ความยากดีมีจน ความสุขความทุกข์
+      <br />
+      มีผลกำเนิดจากบ้านที่เราอยู่
+      <br />
+      มีนคือความลับที่หลายคนไม่เคยรู้ และคิดไม่ถึง
+    </div>
+  </section>
+{/if}
 
 <style lang="scss">
   #slide2 {
@@ -54,11 +69,6 @@
       }
     }
 
-    // @media screen and (max-width: 905px) {
-    //   > .profile {
-    //     flex: unset;
-    //   }
-    // }
     @media screen and (max-width: 897px) {
       flex-direction: column;
       > .profile {
@@ -79,35 +89,9 @@
         }
         &::before,
         &::after {
-          content: "";
+          content: '';
         }
       }
-
-      //   > .profile {
-      //     flex: unset;
-      //     margin: 1rem auto;
-      //     margin-top: 10vh;
-      //     // margin-bottom: 0;
-      //   }
-      //   > .quote {
-      //     margin: 1rem auto;
-      //     margin-top: 5rem;
-      //   }
     }
   }
 </style>
-
-{#if visible}
-  <section id="slide2">
-    <div class="profile" in:fly={{ y: 20, duration: 2400, delay: 500 }}>
-      <img src="img/yotpone.webp" alt="people yotpone" />
-    </div>
-    <div class="quote" in:fly={{ y: -20, duration: 2400, delay: 700 }}>
-      ความยากดีมีจน ความสุขความทุกข์
-      <br />
-      มีผลกำเนิดจากบ้านที่เราอยู่
-      <br />
-      มีนคือความลับที่หลายคนไม่เคยรู้ และคิดไม่ถึง
-    </div>
-  </section>
-{/if}

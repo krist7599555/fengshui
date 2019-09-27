@@ -1,42 +1,42 @@
 <script>
-  import { fullpage, licenseKey } from "../libs/fullpage.js";
-  import { tick, onMount } from "svelte";
-  import About from "./About.svelte";
+  import { fullpage, licenseKey } from '../libs/fullpage.js'
+  import { tick, onMount } from 'svelte'
+  import About from './About.svelte'
 
-  let visible = [true, true, true, true];
+  let visible = [true, true, true, true]
   // $: console.log(visible);
   async function reload(index) {
-    visible[index] = false;
-    await tick();
-    visible[index] = true;
+    visible[index] = false
+    await tick()
+    visible[index] = true
   }
-  let fullpage_api = null;
+  let fullpage_api = null
   onMount(async () => {
-    fullpage_api = new fullpage("#fullpage", {
+    fullpage_api = new fullpage('#fullpage', {
       // css3: false,
       // scrollBar: true,
       scrollOverflow: true,
       licenseKey: licenseKey,
       async onLeave(ol, nw) {
-        if (ol.index == 3 && nw.index == 2) return;
-        await reload(nw.index);
-      }
-    });
+        if (ol.index == 3 && nw.index == 2) return
+        await reload(nw.index)
+      },
+    })
     // fullpage_api.setResponsive(true);
     // fullpage_api.moveTo(2);
-    await tick();
-    await reload(0);
-  });
-  import Slide1 from "./Slide1.svelte";
-  import Slide2 from "./Slide2.svelte";
-  import Slide3 from "./Slide3.svelte";
-  import Slide4 from "./Slide4.svelte";
+    await tick()
+    await reload(0)
+  })
+  import Slide1 from './Slide1.svelte'
+  import Slide2 from './Slide2.svelte'
+  import Slide3 from './Slide3.svelte'
+  import Slide4 from './Slide4.svelte'
 
   async function changeHandle() {
-    setTimeout(fullpage_api.reBuild, 500);
+    setTimeout(fullpage_api.reBuild, 500)
   }
 
-  import Modal from "./Modal.svelte";
+  import Modal from './Modal.svelte'
 </script>
 
 <div id="fullpage">

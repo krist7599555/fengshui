@@ -1,9 +1,15 @@
 <script>
-  import { tick, getContext, createEventDispatcher } from "svelte";
-  import { fly } from "svelte/transition";
-  import _ from "lodash";
-  // export let visible = true;
+  import { tick, getContext, createEventDispatcher } from 'svelte'
+  import { fly } from 'svelte/transition'
+  import _ from 'lodash'
 </script>
+
+<section id="slide4">
+  <p>อ. ยศพนธ์ ประดิภาส</p>
+  <img src="assets/logo.svg" alt="logo" />
+  <a aria-label="call phone" href="tel:0847550825">084-755-0825</a>
+
+</section>
 
 <style lang="scss">
   #slide4 {
@@ -29,12 +35,3 @@
     }
   }
 </style>
-
-<!-- {#if visible} -->
-<section id="slide4">
-  <p>อ. ยศพนธ์ ประดิภาส</p>
-  <img src="assets/logo.svg" alt="logo" />
-  <a aria-label="call phone" href="tel:0847550825">084-755-0825</a>
-
-</section>
-<!-- {/if} -->

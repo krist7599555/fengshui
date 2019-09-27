@@ -1,29 +1,72 @@
 <script>
-  import { tick, createEventDispatcher, onMount } from "svelte";
-  import { fly, fade } from "svelte/transition";
-  import { flip } from "svelte/animate";
-  import { contents, modalData } from "./store.js";
-  import { crossfade } from "svelte/transition";
-  import _ from "lodash";
-  import waterfall from "./waterfall";
+  import { tick, createEventDispatcher, onMount } from 'svelte'
+  import { fly, fade } from 'svelte/transition'
+  import { flip } from 'svelte/animate'
+  import { contents, modalData } from './store.js'
+  import { crossfade } from 'svelte/transition'
+  import _ from 'lodash'
+  import waterfall from './waterfall'
 
   onMount(async () => {
     while (1) {
       // await tick();
       setTimeout(() => {
-        console.log("water");
-        console.log($contents);
-        console.log(document.querySelector(".content-item-block"));
-      }, 1000);
-      break;
+        console.log('water')
+        console.log($contents)
+        console.log(document.querySelector('.content-item-block'))
+      }, 1000)
+      break
     }
-    waterfall(".content-item-block");
-  });
+    waterfall('.content-item-block')
+  })
 
-  export let visible = true;
-  let tab = "posts";
-  const [send, receive] = crossfade({ duration: 1000 });
+  export let visible = true
+  let tab = 'posts'
+  const [send, receive] = crossfade({ duration: 1000 })
 </script>
+
+<section id="slide3">
+  {#if visible}
+    <div class="container">
+      <div class="title">
+        <span
+          class:active={tab == 'showcase'}
+          on:click={() => (tab = 'showcase')}>
+          ผลงานที่ผ่านมา
+        </span>
+        <span style="font-size: 2rem; font-weight: lighter">/</span>
+        <span class:active={tab == 'posts'} on:click={() => (tab = 'posts')}>
+          บทความ
+        </span>
+        <span style="font-size: 2rem; font-weight: lighter">/</span>
+        <span class:active={tab == 'fixed'} on:click={() => (tab = 'fixed')}>
+          แนวทางแก้ไข
+        </span>
+      </div>
+      <br />
+      <br />
+      {#if $contents}
+        <div class="content-item-block">
+          {#each _.values($contents[tab]) as content}
+            <div
+              class="card"
+              on:click={() => modalData.setContent(content.type, content.num)}>
+              <div class="image">
+                <img src={content.img} alt={content.img} />
+              </div>
+              <div class="content">
+                <!-- <p>{.title}</p> -->
+                <button class="readmore">อ่านต่อ</button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+      <br />
+      <br />
+    </div>
+  {/if}
+</section>
 
 <style lang="scss">
   #slide3 {
@@ -38,7 +81,7 @@
     background-repeat: no-repeat;
     > .container {
       max-width: 968px;
-      padding: 0 2rem;
+      /* padding: 0 2rem; */
       margin: 0 auto;
       > .title {
         display: flex;
@@ -133,47 +176,11 @@
       }
     }
   }
+  .content-item-block {
+    /* width: 100%; */
+    /* max-width: 900px; */
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
 </style>
-
-<section id="slide3">
-  {#if visible}
-    <div class="container">
-      <div class="title">
-        <span
-          class:active={tab == 'showcase'}
-          on:click={() => (tab = 'showcase')}>
-          ผลงานที่ผ่านมา
-        </span>
-        <span style="font-size: 2rem; font-weight: lighter">/</span>
-        <span class:active={tab == 'posts'} on:click={() => (tab = 'posts')}>
-          บทความ
-        </span>
-        <span style="font-size: 2rem; font-weight: lighter">/</span>
-        <span class:active={tab == 'fixed'} on:click={() => (tab = 'fixed')}>
-          แนวทางแก้ไข
-        </span>
-      </div>
-      <br />
-      <br />
-      {#if $contents}
-        <div class="content-item-block">
-          {#each _.values($contents[tab]) as content}
-            <div
-              class="card"
-              on:click={() => modalData.setContent(content.type, content.num)}>
-              <div class="image">
-                <img src={content.img} alt={content.img} />
-              </div>
-              <div class="content">
-                <!-- <p>{.title}</p> -->
-                <button class="readmore">อ่านต่อ</button>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-      <br />
-      <br />
-    </div>
-  {/if}
-</section>

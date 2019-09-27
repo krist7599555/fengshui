@@ -1878,11 +1878,11 @@ var app = (function () {
     			t4 = space();
     			p = element("p");
     			p.textContent = "Lorem ipsum dolor sit amet consectetur adipisicing elit. Illum quaerat,\n    accusamus inventore tenetur ducimus dolor, voluptas modi nesciunt delectus\n    quibusdam dolorum culpa molestiae quos, velit ratione? Quo laborum fuga sed.";
-    			add_location(h1, file$1, 5, 2, 65);
-    			add_location(label, file$1, 6, 2, 93);
-    			add_location(p, file$1, 7, 2, 157);
+    			add_location(h1, file$1, 5, 2, 64);
+    			add_location(label, file$1, 6, 2, 92);
+    			add_location(p, file$1, 7, 2, 156);
     			attr(section, "class", "section");
-    			add_location(section, file$1, 4, 0, 37);
+    			add_location(section, file$1, 4, 0, 36);
     			dispose = listen(label, "click", prevent_default(ctx.click_handler));
     		},
 
@@ -20732,7 +20732,7 @@ var app = (function () {
 
     const file$3 = "src/views/Slide1.svelte";
 
-    // (65:0) {#if visible}
+    // (21:0) {#if visible}
     function create_if_block$2(ctx) {
     	var div3, a0, t0, span, t2, br0, t3, div0, img, div0_intro, t4, div1, h1, t6, p, t8, br1, t9, br2, div1_intro, t10, div2, a1, t11, a2, div2_intro, current;
 
@@ -20783,39 +20783,39 @@ var app = (function () {
     			a2 = element("a");
     			icon2.$$.fragment.c();
     			attr(span, "class", "svelte-ii2fev");
-    			add_location(span, file$3, 68, 6, 1583);
+    			add_location(span, file$3, 24, 6, 558);
     			attr(a0, "aria-label", "call phone");
     			attr(a0, "id", "abs-contact");
     			attr(a0, "href", "tel:0847550825");
     			attr(a0, "class", "svelte-ii2fev");
-    			add_location(a0, file$3, 66, 4, 1463);
-    			add_location(br0, file$3, 70, 4, 1622);
+    			add_location(a0, file$3, 22, 4, 438);
+    			add_location(br0, file$3, 26, 4, 597);
     			attr(img, "src", "assets/logo-3.svg");
     			attr(img, "alt", "logo");
-    			add_location(img, file$3, 72, 6, 1705);
+    			add_location(img, file$3, 28, 6, 680);
     			attr(div0, "class", "logo svelte-ii2fev");
-    			add_location(div0, file$3, 71, 4, 1633);
+    			add_location(div0, file$3, 27, 4, 608);
     			attr(h1, "class", "svelte-ii2fev");
-    			add_location(h1, file$3, 75, 6, 1837);
+    			add_location(h1, file$3, 31, 6, 812);
     			attr(p, "class", "svelte-ii2fev");
-    			add_location(p, file$3, 76, 6, 1867);
-    			add_location(br1, file$3, 77, 6, 1911);
-    			add_location(br2, file$3, 80, 6, 1995);
+    			add_location(p, file$3, 32, 6, 842);
+    			add_location(br1, file$3, 33, 6, 886);
+    			add_location(br2, file$3, 36, 6, 970);
     			attr(div1, "class", "body");
-    			add_location(div1, file$3, 74, 4, 1763);
+    			add_location(div1, file$3, 30, 4, 738);
     			attr(a1, "aria-label", "facebook link");
     			attr(a1, "href", "https://facebook.com/bankamnodchivit");
     			attr(a1, "class", "svelte-ii2fev");
-    			add_location(a1, file$3, 83, 6, 2093);
+    			add_location(a1, file$3, 39, 6, 1068);
     			attr(a2, "aria-label", "line link");
     			attr(a2, "href", "https://facebook.com/bankamnodchivit");
     			attr(a2, "class", "svelte-ii2fev");
-    			add_location(a2, file$3, 86, 6, 2240);
+    			add_location(a2, file$3, 42, 6, 1215);
     			attr(div2, "class", "footer");
-    			add_location(div2, file$3, 82, 4, 2017);
+    			add_location(div2, file$3, 38, 4, 992);
     			attr(div3, "id", "slide1");
     			attr(div3, "class", "svelte-ii2fev");
-    			add_location(div3, file$3, 65, 2, 1441);
+    			add_location(div3, file$3, 21, 2, 416);
     		},
 
     		m: function mount(target, anchor) {
@@ -21012,7 +21012,7 @@ var app = (function () {
 
     const file$4 = "src/views/Slide2.svelte";
 
-    // (65:0) {#if visible}
+    // (7:0) {#if visible}
     function create_if_block$3(ctx) {
     	var section, div0, img, div0_intro, t0, div1, t1, br0, t2, br1, t3, div1_intro;
 
@@ -21030,17 +21030,17 @@ var app = (function () {
     			t3 = text("\n      มีนคือความลับที่หลายคนไม่เคยรู้ และคิดไม่ถึง");
     			attr(img, "src", "img/yotpone.webp");
     			attr(img, "alt", "people yotpone");
-    			attr(img, "class", "svelte-kgv5zi");
-    			add_location(img, file$4, 67, 6, 1772);
-    			attr(div0, "class", "profile svelte-kgv5zi");
-    			add_location(div0, file$4, 66, 4, 1697);
-    			add_location(br0, file$4, 71, 6, 1950);
-    			add_location(br1, file$4, 73, 6, 1997);
-    			attr(div1, "class", "quote svelte-kgv5zi");
-    			add_location(div1, file$4, 69, 4, 1839);
+    			attr(img, "class", "svelte-gmvdxc");
+    			add_location(img, file$4, 9, 6, 274);
+    			attr(div0, "class", "profile svelte-gmvdxc");
+    			add_location(div0, file$4, 8, 4, 199);
+    			add_location(br0, file$4, 13, 6, 452);
+    			add_location(br1, file$4, 15, 6, 499);
+    			attr(div1, "class", "quote svelte-gmvdxc");
+    			add_location(div1, file$4, 11, 4, 341);
     			attr(section, "id", "slide2");
-    			attr(section, "class", "svelte-kgv5zi");
-    			add_location(section, file$4, 65, 2, 1671);
+    			attr(section, "class", "svelte-gmvdxc");
+    			add_location(section, file$4, 7, 2, 173);
     		},
 
     		m: function mount(target, anchor) {
@@ -21304,7 +21304,7 @@ var app = (function () {
     	return child_ctx;
     }
 
-    // (120:2) {#if visible}
+    // (29:2) {#if visible}
     function create_if_block$4(ctx) {
     	var div1, div0, span0, t1, span1, t3, span2, t5, span3, t7, span4, t9, br0, t10, br1, t11, t12, br2, t13, br3, dispose;
 
@@ -21338,31 +21338,31 @@ var app = (function () {
     			br2 = element("br");
     			t13 = space();
     			br3 = element("br");
-    			attr(span0, "class", "svelte-1jpt9n5");
+    			attr(span0, "class", "svelte-f4nt8b");
     			toggle_class(span0, "active", ctx.tab == 'showcase');
-    			add_location(span0, file$5, 122, 8, 3228);
+    			add_location(span0, file$5, 31, 8, 830);
     			set_style(span1, "font-size", "2rem");
     			set_style(span1, "font-weight", "lighter");
-    			attr(span1, "class", "svelte-1jpt9n5");
-    			add_location(span1, file$5, 127, 8, 3373);
-    			attr(span2, "class", "svelte-1jpt9n5");
+    			attr(span1, "class", "svelte-f4nt8b");
+    			add_location(span1, file$5, 36, 8, 975);
+    			attr(span2, "class", "svelte-f4nt8b");
     			toggle_class(span2, "active", ctx.tab == 'posts');
-    			add_location(span2, file$5, 128, 8, 3442);
+    			add_location(span2, file$5, 37, 8, 1044);
     			set_style(span3, "font-size", "2rem");
     			set_style(span3, "font-weight", "lighter");
-    			attr(span3, "class", "svelte-1jpt9n5");
-    			add_location(span3, file$5, 131, 8, 3553);
-    			attr(span4, "class", "svelte-1jpt9n5");
+    			attr(span3, "class", "svelte-f4nt8b");
+    			add_location(span3, file$5, 40, 8, 1155);
+    			attr(span4, "class", "svelte-f4nt8b");
     			toggle_class(span4, "active", ctx.tab == 'fixed');
-    			add_location(span4, file$5, 132, 8, 3622);
-    			attr(div0, "class", "title svelte-1jpt9n5");
-    			add_location(div0, file$5, 121, 6, 3200);
-    			add_location(br0, file$5, 136, 6, 3749);
-    			add_location(br1, file$5, 137, 6, 3762);
-    			add_location(br2, file$5, 187, 6, 5456);
-    			add_location(br3, file$5, 188, 6, 5469);
-    			attr(div1, "class", "container svelte-1jpt9n5");
-    			add_location(div1, file$5, 120, 4, 3170);
+    			add_location(span4, file$5, 41, 8, 1224);
+    			attr(div0, "class", "title svelte-f4nt8b");
+    			add_location(div0, file$5, 30, 6, 802);
+    			add_location(br0, file$5, 45, 6, 1351);
+    			add_location(br1, file$5, 46, 6, 1364);
+    			add_location(br2, file$5, 64, 6, 1953);
+    			add_location(br3, file$5, 65, 6, 1966);
+    			attr(div1, "class", "container svelte-f4nt8b");
+    			add_location(div1, file$5, 29, 4, 772);
 
     			dispose = [
     				listen(span0, "click", ctx.click_handler),
@@ -21427,7 +21427,7 @@ var app = (function () {
     	};
     }
 
-    // (139:6) {#if $contents}
+    // (48:6) {#if $contents}
     function create_if_block_1$1(ctx) {
     	var div;
 
@@ -21446,8 +21446,8 @@ var app = (function () {
     			for (var i = 0; i < each_blocks.length; i += 1) {
     				each_blocks[i].c();
     			}
-    			attr(div, "class", "content-item-block");
-    			add_location(div, file$5, 139, 8, 3799);
+    			attr(div, "class", "content-item-block svelte-f4nt8b");
+    			add_location(div, file$5, 48, 8, 1401);
     		},
 
     		m: function mount(target, anchor) {
@@ -21491,7 +21491,7 @@ var app = (function () {
     	};
     }
 
-    // (141:10) {#each _.values($contents[tab]) as content}
+    // (50:10) {#each _.values($contents[tab]) as content}
     function create_each_block(ctx) {
     	var div2, div0, img, img_src_value, img_alt_value, t0, div1, button, t2, dispose;
 
@@ -21511,16 +21511,16 @@ var app = (function () {
     			t2 = space();
     			attr(img, "src", img_src_value = ctx.content.img);
     			attr(img, "alt", img_alt_value = ctx.content.img);
-    			attr(img, "class", "svelte-1jpt9n5");
-    			add_location(img, file$5, 145, 16, 4060);
-    			attr(div0, "class", "image svelte-1jpt9n5");
-    			add_location(div0, file$5, 144, 14, 4024);
-    			attr(button, "class", "readmore svelte-1jpt9n5");
-    			add_location(button, file$5, 149, 16, 4218);
-    			attr(div1, "class", "content svelte-1jpt9n5");
-    			add_location(div1, file$5, 147, 14, 4139);
-    			attr(div2, "class", "card svelte-1jpt9n5");
-    			add_location(div2, file$5, 141, 12, 3898);
+    			attr(img, "class", "svelte-f4nt8b");
+    			add_location(img, file$5, 54, 16, 1662);
+    			attr(div0, "class", "image svelte-f4nt8b");
+    			add_location(div0, file$5, 53, 14, 1626);
+    			attr(button, "class", "readmore svelte-f4nt8b");
+    			add_location(button, file$5, 58, 16, 1820);
+    			attr(div1, "class", "content svelte-f4nt8b");
+    			add_location(div1, file$5, 56, 14, 1741);
+    			attr(div2, "class", "card svelte-f4nt8b");
+    			add_location(div2, file$5, 50, 12, 1500);
     			dispose = listen(div2, "click", click_handler_3);
     		},
 
@@ -21565,8 +21565,8 @@ var app = (function () {
     			section = element("section");
     			if (if_block) if_block.c();
     			attr(section, "id", "slide3");
-    			attr(section, "class", "svelte-1jpt9n5");
-    			add_location(section, file$5, 118, 0, 3128);
+    			attr(section, "class", "svelte-f4nt8b");
+    			add_location(section, file$5, 27, 0, 730);
     		},
 
     		l: function claim(nodes) {
@@ -21618,17 +21618,17 @@ var app = (function () {
         while (1) {
           // await tick();
           setTimeout(() => {
-            console.log("water");
+            console.log('water');
             console.log($contents);
-            console.log(document.querySelector(".content-item-block"));
+            console.log(document.querySelector('.content-item-block'));
           }, 1000);
-          break;
+          break
         }
-        waterfall(".content-item-block");
+        waterfall('.content-item-block');
       });
 
       let { visible = true } = $$props;
-      let tab = "posts";
+      let tab = 'posts';
       const [send, receive] = crossfade({ duration: 1000 });
 
     	const writable_props = ['visible'];
@@ -21688,11 +21688,75 @@ var app = (function () {
     	}
     }
 
+    /* src/views/Slide4.svelte generated by Svelte v3.9.1 */
+
+    const file$6 = "src/views/Slide4.svelte";
+
+    function create_fragment$7(ctx) {
+    	var section, p, t1, img, t2, a;
+
+    	return {
+    		c: function create() {
+    			section = element("section");
+    			p = element("p");
+    			p.textContent = "อ. ยศพนธ์ ประดิภาส";
+    			t1 = space();
+    			img = element("img");
+    			t2 = space();
+    			a = element("a");
+    			a.textContent = "084-755-0825";
+    			attr(p, "class", "svelte-11d5s86");
+    			add_location(p, file$6, 7, 2, 178);
+    			attr(img, "src", "assets/logo.svg");
+    			attr(img, "alt", "logo");
+    			attr(img, "class", "svelte-11d5s86");
+    			add_location(img, file$6, 8, 2, 206);
+    			attr(a, "aria-label", "call phone");
+    			attr(a, "href", "tel:0847550825");
+    			attr(a, "class", "svelte-11d5s86");
+    			add_location(a, file$6, 9, 2, 249);
+    			attr(section, "id", "slide4");
+    			attr(section, "class", "svelte-11d5s86");
+    			add_location(section, file$6, 6, 0, 154);
+    		},
+
+    		l: function claim(nodes) {
+    			throw new Error("options.hydrate only works if the component was compiled with the `hydratable: true` option");
+    		},
+
+    		m: function mount(target, anchor) {
+    			insert(target, section, anchor);
+    			append(section, p);
+    			append(section, t1);
+    			append(section, img);
+    			append(section, t2);
+    			append(section, a);
+    		},
+
+    		p: noop,
+    		i: noop,
+    		o: noop,
+
+    		d: function destroy(detaching) {
+    			if (detaching) {
+    				detach(section);
+    			}
+    		}
+    	};
+    }
+
+    class Slide4 extends SvelteComponentDev {
+    	constructor(options) {
+    		super(options);
+    		init(this, options, null, create_fragment$7, safe_not_equal, []);
+    	}
+    }
+
     /* src/views/Modal.svelte generated by Svelte v3.9.1 */
 
-    const file$6 = "src/views/Modal.svelte";
+    const file$7 = "src/views/Modal.svelte";
 
-    // (164:6) {:else}
+    // (64:6) {:else}
     function create_else_block$1(ctx) {
     	var div1, div0, img, img_src_value, img_alt_value, t, div1_transition, current;
 
@@ -21707,12 +21771,12 @@ var app = (function () {
     			if (if_block) if_block.c();
     			attr(img, "src", img_src_value = ctx.$modalData.img);
     			attr(img, "alt", img_alt_value = ctx.$modalData.img);
-    			add_location(img, file$6, 175, 12, 4255);
-    			attr(div0, "class", "post svelte-17gsjud");
-    			add_location(div0, file$6, 169, 10, 4020);
+    			add_location(img, file$7, 75, 12, 2076);
+    			attr(div0, "class", "post svelte-1dzfmgl");
+    			add_location(div0, file$7, 69, 10, 1841);
     			attr(div1, "id", "post-content");
-    			attr(div1, "class", "content svelte-17gsjud");
-    			add_location(div1, file$6, 164, 8, 3903);
+    			attr(div1, "class", "content svelte-1dzfmgl");
+    			add_location(div1, file$7, 64, 8, 1724);
     		},
 
     		m: function mount(target, anchor) {
@@ -21778,7 +21842,7 @@ var app = (function () {
     	};
     }
 
-    // (162:6) {#if !$modalData}
+    // (62:6) {#if !$modalData}
     function create_if_block$5(ctx) {
     	var t;
 
@@ -21803,7 +21867,7 @@ var app = (function () {
     	};
     }
 
-    // (177:12) {#if $modalData.html}
+    // (77:12) {#if $modalData.html}
     function create_if_block_1$2(ctx) {
     	var html_tag, raw_value = ctx.$modalData.html + "";
 
@@ -21830,8 +21894,8 @@ var app = (function () {
     	};
     }
 
-    function create_fragment$7(ctx) {
-    	var div3, div0, t0, div2, div1, a0, t1, a1, t2, a2, t3, current_block_type_index, if_block, current, dispose;
+    function create_fragment$8(ctx) {
+    	var div3, div0, t0, div2, div1, span0, t1, span1, t2, span2, t3, current_block_type_index, if_block, current, dispose;
 
     	var icon0 = new Icon({
     		props: {
@@ -21882,13 +21946,13 @@ var app = (function () {
     			t0 = space();
     			div2 = element("div");
     			div1 = element("div");
-    			a0 = element("a");
+    			span0 = element("span");
     			icon0.$$.fragment.c();
     			t1 = space();
-    			a1 = element("a");
+    			span1 = element("span");
     			icon1.$$.fragment.c();
     			t2 = space();
-    			a2 = element("a");
+    			span2 = element("span");
     			icon2.$$.fragment.c();
     			t3 = space();
 
@@ -21897,34 +21961,31 @@ var app = (function () {
     			}
 
     			if (default_slot) default_slot.c();
-    			attr(div0, "class", "background svelte-17gsjud");
-    			add_location(div0, file$6, 147, 2, 3256);
-    			attr(a0, "href", "#");
-    			attr(a0, "class", "svelte-17gsjud");
-    			add_location(a0, file$6, 150, 6, 3403);
-    			attr(a1, "href", "#");
-    			attr(a1, "class", "svelte-17gsjud");
-    			add_location(a1, file$6, 153, 6, 3541);
-    			attr(a2, "href", "#");
-    			attr(a2, "class", "svelte-17gsjud");
-    			add_location(a2, file$6, 156, 6, 3676);
-    			attr(div1, "class", "nav dark svelte-17gsjud");
-    			add_location(div1, file$6, 149, 4, 3374);
+    			attr(div0, "class", "background svelte-1dzfmgl");
+    			add_location(div0, file$7, 47, 2, 1086);
+    			attr(span0, "class", "svelte-1dzfmgl");
+    			add_location(span0, file$7, 50, 6, 1233);
+    			attr(span1, "class", "svelte-1dzfmgl");
+    			add_location(span1, file$7, 53, 6, 1368);
+    			attr(span2, "class", "svelte-1dzfmgl");
+    			add_location(span2, file$7, 56, 6, 1500);
+    			attr(div1, "class", "nav dark svelte-1dzfmgl");
+    			add_location(div1, file$7, 49, 4, 1204);
 
     			attr(div2, "id", "content-wrapper");
     			set_style(div2, "overflow", "auto");
-    			attr(div2, "class", "svelte-17gsjud");
-    			add_location(div2, file$6, 148, 2, 3320);
-    			attr(div3, "class", "modal svelte-17gsjud");
+    			attr(div2, "class", "svelte-1dzfmgl");
+    			add_location(div2, file$7, 48, 2, 1150);
+    			attr(div3, "class", "modal svelte-1dzfmgl");
     			toggle_class(div3, "is-active", !!ctx.$modalData);
-    			add_location(div3, file$6, 143, 0, 3156);
+    			add_location(div3, file$7, 43, 0, 986);
 
     			dispose = [
     				listen(window, "keydown", handleKey),
     				listen(div0, "click", ctx.click_handler),
-    				listen(a0, "click", prevent_default(modalData.goPrev)),
-    				listen(a1, "click", prevent_default(modalData.reset)),
-    				listen(a2, "click", prevent_default(modalData.goNext)),
+    				listen(span0, "click", prevent_default(modalData.goPrev)),
+    				listen(span1, "click", prevent_default(modalData.reset)),
+    				listen(span2, "click", prevent_default(modalData.goNext)),
     				listen(div3, "scroll", stop_propagation(prevent_default(ctx.scroll_handler)))
     			];
     		},
@@ -21940,14 +22001,14 @@ var app = (function () {
     			append(div3, t0);
     			append(div3, div2);
     			append(div2, div1);
-    			append(div1, a0);
-    			mount_component(icon0, a0, null);
+    			append(div1, span0);
+    			mount_component(icon0, span0, null);
     			append(div1, t1);
-    			append(div1, a1);
-    			mount_component(icon1, a1, null);
+    			append(div1, span1);
+    			mount_component(icon1, span1, null);
     			append(div1, t2);
-    			append(div1, a2);
-    			mount_component(icon2, a2, null);
+    			append(div1, span2);
+    			mount_component(icon2, span2, null);
     			append(div2, t3);
 
     			if (!default_slot) {
@@ -22053,15 +22114,15 @@ var app = (function () {
 
     function handleKey(e) {
       switch (e.key) {
-        case "ArrowRight":
+        case 'ArrowRight':
           modalData.goNext();
-          break;
-        case "ArrowLeft":
+          break
+        case 'ArrowLeft':
           modalData.goPrev();
-          break;
-        case "Escape":
+          break
+        case 'Escape':
           modalData.reset();
-          break;
+          break
       }
     }
 
@@ -22073,10 +22134,10 @@ var app = (function () {
 
     	
       const [send, receive] = crossfade({
-        duration: d => Math.sqrt(d * 200)
+        duration: d => Math.sqrt(d * 200),
       });
       modalData.subscribe(val => {
-        const elm = document.getElementById("post-content");
+        const elm = document.getElementById('post-content');
         if (elm) {
           elm.scrollTop = 0;
         }
@@ -22108,16 +22169,16 @@ var app = (function () {
     class Modal extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$7, create_fragment$7, safe_not_equal, []);
+    		init(this, options, instance$7, create_fragment$8, safe_not_equal, []);
     	}
     }
 
     /* src/views/Home.svelte generated by Svelte v3.9.1 */
     const { document: document_1 } = globals;
 
-    const file$7 = "src/views/Home.svelte";
+    const file$8 = "src/views/Home.svelte";
 
-    // (86:4) {#if showSlide2}
+    // (75:4) {#if showSlide2}
     function create_if_block$6(ctx) {
     	var current;
 
@@ -22151,8 +22212,8 @@ var app = (function () {
     	};
     }
 
-    function create_fragment$8(ctx) {
-    	var t0, div3, div0, t1, div1, t2, div2, t3, current;
+    function create_fragment$9(ctx) {
+    	var t0, div3, div0, t1, div1, t2, div2, t3, t4, current;
 
     	document_1.body.addEventListener("wheel", ctx.wheel);
 
@@ -22163,6 +22224,8 @@ var app = (function () {
     	var if_block = (ctx.showSlide2) && create_if_block$6();
 
     	var slide3 = new Slide3({ $$inline: true });
+
+    	var slide4 = new Slide4({ $$inline: true });
 
     	var modal = new Modal({ $$inline: true });
 
@@ -22179,15 +22242,17 @@ var app = (function () {
     			div2 = element("div");
     			slide3.$$.fragment.c();
     			t3 = space();
+    			slide4.$$.fragment.c();
+    			t4 = space();
     			modal.$$.fragment.c();
     			attr(div0, "class", "section svelte-xaq8dv");
-    			add_location(div0, file$7, 81, 2, 2232);
+    			add_location(div0, file$8, 70, 2, 2013);
     			attr(div1, "class", "section svelte-xaq8dv");
-    			add_location(div1, file$7, 84, 2, 2280);
+    			add_location(div1, file$8, 73, 2, 2061);
     			attr(div2, "class", "section fp-auto-height-responsive fp-scrollable svelte-xaq8dv");
-    			add_location(div2, file$7, 89, 2, 2361);
+    			add_location(div2, file$8, 78, 2, 2142);
     			attr(div3, "id", "fullpage");
-    			add_location(div3, file$7, 80, 0, 2210);
+    			add_location(div3, file$8, 69, 0, 1991);
     		},
 
     		l: function claim(nodes) {
@@ -22205,7 +22270,9 @@ var app = (function () {
     			append(div3, t2);
     			append(div3, div2);
     			mount_component(slide3, div2, null);
-    			insert(target, t3, anchor);
+    			append(div3, t3);
+    			mount_component(slide4, div3, null);
+    			insert(target, t4, anchor);
     			mount_component(modal, target, anchor);
     			current = true;
     		},
@@ -22237,6 +22304,8 @@ var app = (function () {
 
     			transition_in(slide3.$$.fragment, local);
 
+    			transition_in(slide4.$$.fragment, local);
+
     			transition_in(modal.$$.fragment, local);
 
     			current = true;
@@ -22246,6 +22315,7 @@ var app = (function () {
     			transition_out(slide1.$$.fragment, local);
     			transition_out(if_block);
     			transition_out(slide3.$$.fragment, local);
+    			transition_out(slide4.$$.fragment, local);
     			transition_out(modal.$$.fragment, local);
     			current = false;
     		},
@@ -22266,8 +22336,10 @@ var app = (function () {
 
     			destroy_component(slide3);
 
+    			destroy_component(slide4);
+
     			if (detaching) {
-    				detach(t3);
+    				detach(t4);
     			}
 
     			destroy_component(modal, detaching);
@@ -22276,16 +22348,16 @@ var app = (function () {
     }
 
     function allowScroll(allow) {
-      document.body.classList[allow ? "remove" : "add"]("stop-scrolling");
+      document.body.classList[allow ? 'remove' : 'add']('stop-scrolling');
     }
 
     function getScrollTop() {
       var doc = document.documentElement;
-      return (window.pageYOffset || doc.scrollTop) - (doc.clientTop || 0);
+      return (window.pageYOffset || doc.scrollTop) - (doc.clientTop || 0)
     }
 
     function getFullHeight() {
-      return window.innerHeight;
+      return window.innerHeight
     }
 
     function instance$8($$self, $$props, $$invalidate) {
@@ -22299,19 +22371,19 @@ var app = (function () {
 
       function wheel(e) {
         const down = e.deltaY > 0;
-        if (getScrollTop() >= getFullHeight() * 2 + 10) return;
+        if (getScrollTop() >= getFullHeight() * 2 + 10) return
         if (!isScrolling) {
           allowScroll(false);
           isScrolling = true;
           document.body.style.transform = `translateY(${
-        down ? "-100vh" : lodash.min([getFullHeight(), getScrollTop()]) + "px"
+        down ? '-100vh' : lodash.min([getFullHeight(), getScrollTop()]) + 'px'
       })`;
           if (down) {
             $$invalidate('showSlide2', showSlide2 = true);
           }
           setTimeout(async () => {
             allowScroll(true);
-            document.body.style.transform = "";
+            document.body.style.transform = '';
             const locY = getScrollTop() + (down ? 1 : -1) * getFullHeight();
             window.scrollTo(0, locY);
             isScrolling = false;
@@ -22332,13 +22404,13 @@ var app = (function () {
     class Home extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, instance$8, create_fragment$8, safe_not_equal, []);
+    		init(this, options, instance$8, create_fragment$9, safe_not_equal, []);
     	}
     }
 
     /* src/App.svelte generated by Svelte v3.9.1 */
 
-    // (71:0) <Router>
+    // (7:0) <Router>
     function create_default_slot(ctx) {
     	var t, current;
 
@@ -22407,7 +22479,7 @@ var app = (function () {
     	};
     }
 
-    function create_fragment$9(ctx) {
+    function create_fragment$a(ctx) {
     	var current;
 
     	var router = new Router_1({
@@ -22459,7 +22531,7 @@ var app = (function () {
     class App extends SvelteComponentDev {
     	constructor(options) {
     		super(options);
-    		init(this, options, null, create_fragment$9, safe_not_equal, []);
+    		init(this, options, null, create_fragment$a, safe_not_equal, []);
     	}
     }
 

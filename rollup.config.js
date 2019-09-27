@@ -39,7 +39,7 @@ export default {
         // console.log(css.map);
         css.write('public/bundle.css');
       },
-      preprocess: autoPreprocess([scss(), globalStyle()])
+      preprocess: autoPreprocess([scss(), globalStyle()]),
       // preprocess: [
       //   // pug({ /* pug options */ }),
       //   scss({
@@ -47,6 +47,13 @@ export default {
       //   })
       //   // coffeescript({ /* coffeescript options */ })
       // ]
+      onwarn: (warning, handler) => {
+        // e.g. don't warn on <marquee> elements, cos they're cool
+        if (warning.code === 'a11y-distracting-elements') return;
+
+        // let Rollup handle all other warnings normally
+        handler(warning);
+      }
     }),
 
     // If you have external dependencies installed from

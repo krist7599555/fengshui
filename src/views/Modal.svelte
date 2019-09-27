@@ -1,9 +1,9 @@
 <script>
-  import { modalData } from "./store.js";
-  import { fade, fly } from "svelte/transition";
-  import { crossfade } from "svelte/transition";
-  import { flip } from "svelte/animate";
-  import Icon from "fa-svelte";
+  import { modalData } from './store.js'
+  import { fade, fly } from 'svelte/transition'
+  import { crossfade } from 'svelte/transition'
+  import { flip } from 'svelte/animate'
+  import Icon from 'fa-svelte'
   import {
     faTimes,
     faTimesCircle,
@@ -11,33 +11,88 @@
     faArrowCircleLeft,
     faChevronCircleLeft,
     faChevronLeft,
-    faArrowCircleRight
-  } from "@fortawesome/free-solid-svg-icons";
-  import * as animateScroll from "svelte-scrollto";
+    faArrowCircleRight,
+  } from '@fortawesome/free-solid-svg-icons'
+  import * as animateScroll from 'svelte-scrollto'
   const [send, receive] = crossfade({
-    duration: d => Math.sqrt(d * 200)
-  });
+    duration: d => Math.sqrt(d * 200),
+  })
   modalData.subscribe(val => {
-    const elm = document.getElementById("post-content");
+    const elm = document.getElementById('post-content')
     if (elm) {
-      elm.scrollTop = 0;
+      elm.scrollTop = 0
     }
-  });
+  })
 
   function handleKey(e) {
     switch (e.key) {
-      case "ArrowRight":
-        modalData.goNext();
-        break;
-      case "ArrowLeft":
-        modalData.goPrev();
-        break;
-      case "Escape":
-        modalData.reset();
-        break;
+      case 'ArrowRight':
+        modalData.goNext()
+        break
+      case 'ArrowLeft':
+        modalData.goPrev()
+        break
+      case 'Escape':
+        modalData.reset()
+        break
     }
   }
 </script>
+
+<svelte:window on:keydown={handleKey} />
+
+<div
+  class="modal"
+  class:is-active={!!$modalData}
+  on:scroll|preventDefault|stopPropagation>
+  <div class="background" on:click={() => modalData.reset()} />
+  <div id="content-wrapper" style="overflow: auto">
+    <div class="nav dark">
+      <span on:click|preventDefault={modalData.goPrev}>
+        <Icon class="nav-icon -left" icon={faArrowCircleLeft} />
+      </span>
+      <span on:click|preventDefault={modalData.reset}>
+        <Icon class="nav-icon -cancel" icon={faTimesCircle} />
+      </span>
+      <span on:click|preventDefault={modalData.goNext}>
+        <Icon class="nav-icon -right" icon={faArrowCircleRight} />
+      </span>
+    </div>
+    <slot>
+      {#if !$modalData}
+        FALLBACK NO DATA
+      {:else}
+        <div
+          id="post-content"
+          class="content"
+          transition:fade={{ duration: 500 }}>
+
+          <div class="post">
+            <!-- <h1
+              in:send={{ key: 'modal-post-content-head' }}
+              out:receive={{ key: 'modal-post-content-head' }}>
+              {$modalData.curr.title}
+            </h1> -->
+            <img src={$modalData.img} alt={$modalData.img} />
+            {#if $modalData.html}
+              {@html $modalData.html}
+            {/if}
+          </div>
+
+        </div>
+        <!-- {:else if $modalData.type == 'img'}
+        <img
+          style="max-width: 100%; max-height: 100%; z-index: 10; max-width:
+          90vw; max-height: 90vh;"
+          src={$modalData.curr}
+          alt={$modalData.curr} />
+      {:else}data.type != post{/if} -->
+      {/if}
+    </slot>
+  </div>
+
+</div>
+
 
 <style lang="scss">
   %fit-full {
@@ -142,7 +197,7 @@
     border-width: 0 0 1px 0;
     border-width: 0;
     padding: 0.9rem 0rem 3px;
-    a {
+    > * {
       cursor: pointer;
       &:first-child {
         margin-left: 1rem;
@@ -169,57 +224,3 @@
     }
   }
 </style>
-
-<svelte:window on:keydown={handleKey} />
-
-<div
-  class="modal"
-  class:is-active={!!$modalData}
-  on:scroll|preventDefault|stopPropagation>
-  <div class="background" on:click={() => modalData.reset()} />
-  <div id="content-wrapper" style="overflow: auto">
-    <div class="nav dark">
-      <a on:click|preventDefault={modalData.goPrev} href="#">
-        <Icon class="nav-icon -left" icon={faArrowCircleLeft} />
-      </a>
-      <a on:click|preventDefault={modalData.reset} href="#">
-        <Icon class="nav-icon -cancel" icon={faTimesCircle} />
-      </a>
-      <a on:click|preventDefault={modalData.goNext} href="#">
-        <Icon class="nav-icon -right" icon={faArrowCircleRight} />
-      </a>
-    </div>
-    <slot>
-      {#if !$modalData}
-        FALLBACK NO DATA
-      {:else}
-        <div
-          id="post-content"
-          class="content"
-          transition:fade={{ duration: 500 }}>
-
-          <div class="post">
-            <!-- <h1
-              in:send={{ key: 'modal-post-content-head' }}
-              out:receive={{ key: 'modal-post-content-head' }}>
-              {$modalData.curr.title}
-            </h1> -->
-            <img src={$modalData.img} alt={$modalData.img} />
-            {#if $modalData.html}
-              {@html $modalData.html}
-            {/if}
-          </div>
-
-        </div>
-        <!-- {:else if $modalData.type == 'img'}
-        <img
-          style="max-width: 100%; max-height: 100%; z-index: 10; max-width:
-          90vw; max-height: 90vh;"
-          src={$modalData.curr}
-          alt={$modalData.curr} />
-      {:else}data.type != post{/if} -->
-      {/if}
-    </slot>
-  </div>
-
-</div>
