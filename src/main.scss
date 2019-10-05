@@ -37,6 +37,14 @@ $white: #f3f3f0;
 body {
   margin: 0 !important;
   padding: 0 !important;
+  font-family: Helvetica, Arial, sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
+    'Segoe UI Symbol';
+  color: #1d2129;
+  line-height: 1.60;
+}
+
+.k-font {
   font-family: 'Kanit', 'Niramit', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
     'Segoe UI Symbol';

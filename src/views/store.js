@@ -56,7 +56,7 @@ async function getContent(type, num) {
   if (res.html && _.startsWith(res.html, '/database/')) {
     res.html = await axios.get(res.html).then(r => r.data);
   }
-  console.log(type, num, res);
+  // console.log(type, num, res);
   return res;
 }
 

@@ -18,6 +18,13 @@
     duration: d => Math.sqrt(d * 200),
   })
   modalData.subscribe(val => {
+    if (document.body.classList) {
+      if (val) {
+        document.body.classList.add('modal-open')
+      } else {
+        document.body.classList.remove('modal-open')
+      }
+    }
     const elm = document.getElementById('post-content')
     if (elm) {
       elm.scrollTop = 0
@@ -73,10 +80,19 @@
               out:receive={{ key: 'modal-post-content-head' }}>
               {$modalData.curr.title}
             </h1> -->
-            <img src={$modalData.img} alt={$modalData.img} />
+
+            {#if $modalData.img}
+              <img src={$modalData.img} alt={$modalData.img} />
+            {/if}
             {#if $modalData.html}
               {@html $modalData.html}
             {/if}
+            {#if $modalData.imgs}
+              {#each $modalData.imgs as img}
+                <img src={img} alt={img} />
+              {/each}
+            {/if}
+
           </div>
 
         </div>
@@ -93,21 +109,17 @@
 
 </div>
 
-
 <style lang="scss">
-  %fit-full {
-    bottom: 0;
-    left: 0;
-    position: absolute;
-    right: 0;
-    top: 0;
-  }
   .modal.is-active {
     display: flex;
   }
   .modal {
     position: fixed;
-    @extend %fit-full;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: 0;
+    position: absolute;
     align-items: center;
     display: none;
     flex-direction: column;
@@ -116,7 +128,11 @@
     position: fixed;
     z-index: 40;
     > .background {
-      @extend %fit-full;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      top: 0;
+      position: absolute;
       background-color: hsla(0, 0%, 4%, 0.86);
     }
     .content {
@@ -132,7 +148,7 @@
       // margin: 0 20px;
       width: 100%;
       max-width: 960px;
-      max-width: 600px;
+      max-width: 500px;
       // @media screen and (max-width: 600px) {
       //   max-width: calc(100vw - 4rem);
       // }
@@ -144,10 +160,11 @@
     > :global(img) {
       max-width: 100%;
     }
-    @media screen and (max-width: 640px) {
-      > :global(:not(img)) {
-        margin-left: 1rem;
-        margin-right: 1rem;
+    > :global(:not(img)) {
+      margin-block-end: 2em;
+      @media screen and (max-width: 640px) {
+        margin-left: 1.5rem;
+        margin-right: 1.5rem;
       }
     }
   }

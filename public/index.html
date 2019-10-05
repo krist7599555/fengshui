@@ -26,6 +26,53 @@
     />
     <meta property="og:image" content="https://bankamnodchivit.netlify.com/assets/1.png" />
     <meta property="og:url" content="https://bankamnodchivit.netlify.com/index.html" />
+
+
+    <link rel="preload" as="image" href="img/bg1.webp" />
+    <link rel="preload" as="image" href="img/yotpone.webp" />
+    <!-- <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <script src="../src/libs/jquery.mosaicflow.min.js"></script> -->
   </head>
-  <body></body>
+  <body>
+    <div id="loading-content">
+      <div style='margin: auto'>
+        <h1>. . .</h1>
+      </div>
+    </div>
+  </body>
+  <style>
+    #loading-content {
+      position: fixed;
+      background-color: #262626;
+      height: 100vh;
+      width: 100vw;
+      color: white;
+      display: flex;
+      justify-content: center;
+      vertical-align: middle;
+      z-index: 1000;
+      animation: loading-keyframe 1s ease-in-out 0;
+      opacity: 1;
+      transition: all 1s ease-out;
+    }
+    @keyframes loading-keyframe {
+      0%  {transform: translateY(  0px);}
+      50% {transform: translateY(-10px);}
+    }
+    #loading-content h1 {
+      animation: loading-keyframe 1s cubic-bezier(0.165, 0.84, 0.44, 1) 0s
+      alternate
+      infinite
+      none
+      running;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    }
+    body.ready #loading-content{
+      opacity: 0;
+      pointer-events: none;
+    }
+    body.modal-open {
+      overflow: hidden;
+    }
+  </style>
 </html>

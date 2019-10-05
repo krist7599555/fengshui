@@ -12,6 +12,8 @@
   import { cubicInOut } from 'svelte/easing'
   import _ from 'lodash'
 
+  const FULLPAGE = false
+
   function allowScroll(allow) {
     document.body.classList[allow ? 'remove' : 'add']('stop-scrolling')
   }
@@ -24,13 +26,25 @@
     return window.innerHeight
   }
 
+  import checkImageLoaded from '../libs/checkImgeLoaded'
   onMount(() => {
-    allowScroll(false)
+    if (FULLPAGE) {
+      allowScroll(false)
+    }
+    Promise.all([
+      checkImageLoaded('img/bg1.webp'),
+      checkImageLoaded('img/yotpone.webp'),
+    ]).then(() => {
+      document.body.classList.add('ready')
+    })
   })
   let isScrolling = false
-  let showSlide2 = false
+  let showSlide2 = !FULLPAGE
 
   function wheel(e) {
+    if (!FULLPAGE) {
+      return
+    }
     const down = e.deltaY > 0
     if (getScrollTop() >= getFullHeight() * 2 + 10) return
     if (!isScrolling) {
@@ -60,6 +74,11 @@
   }
 </script>
 
+<svelte:head>
+  <link rel="preload" as="image" href="img/bg1.webp" />
+  <link rel="preload" as="image" href="img/yotpone.webp" />
+</svelte:head>
+
 <!-- <svelte:window on:scroll|preventDefault={scroll} on:touchmove|preventDefault /> -->
 <svelte:body on:wheel={wheel} on:touchmove={wheel} />
 <!-- <div style='position: fixed; z-index: 1000; color: red
@@ -83,7 +102,6 @@
 </div>
 
 <Modal />
-
 
 <style>
   .section > :global(*) {

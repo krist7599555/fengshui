@@ -6,24 +6,39 @@
   import { crossfade } from 'svelte/transition'
   import _ from 'lodash'
 
-  // import waterfall from './waterfall'
-  // onMount(async () => {
-  //   while (1) {
-  //     // await tick();
-  //     setTimeout(() => {
-  //       console.log('water')
-  //       console.log($contents)
-  //       console.log(document.querySelector('.content-item-block'))
-  //     }, 1000)
-  //     break
-  //   }
-  //   waterfall('.content-item-block')
-  // })
-
   export let visible = true
   let tab = 'posts'
   const [send, receive] = crossfade({ duration: 1000 })
+
+  import waterfall from '../libs/waterfall'
+
+  async function water() {
+    const els = document.querySelector('#slide3-items')
+    if (els) {
+      waterfall(els)
+    } else {
+      console.log('sad')
+    }
+  }
+
+  // $: {
+  //   tab
+  //   water()
+  //   console.log('tab')
+  // }
+  onMount(async () => {
+    // await tick()
+    // water()
+    setInterval(water, 10)
+  })
+  // import _$ from 'jquery'
+  // _$('#slide3-items').mosaicflow({
+  //   // itemSelector: '.item',
+  //   minItemWidth: 300,
+  // })
 </script>
+
+<svelte:window on:resize={water} />
 
 <section id="slide3">
   {#if visible}
@@ -46,18 +61,18 @@
       <br />
       <br />
       {#if $contents}
-        <div class="content-item-block">
+        <div id="slide3-items">
           {#each _.values($contents[tab]) as content}
             <div
               class="card"
               on:click={() => modalData.setContent(content.type, content.num)}>
-              <div class="image">
-                <img src={content.img} alt={content.img} />
-              </div>
-              <div class="content">
-                <!-- <p>{.title}</p> -->
-                <button class="readmore">อ่านต่อ</button>
-              </div>
+              <img
+                src={content.img}
+                alt={content.img}
+                loading="lazy"
+                width="300"
+                height="200" />
+              <button class="readmore">อ่านต่อ</button>
             </div>
           {/each}
         </div>
@@ -80,7 +95,7 @@
     background-attachment: inherit;
     background-repeat: no-repeat;
     > .container {
-      max-width: 968px;
+      /* max-width: 968px; */
       /* padding: 0 2rem; */
       margin: 0 auto;
       > .title {
@@ -122,65 +137,56 @@
     img {
       // max-height: 200px;
       max-width: 100%;
-      margin: 0 0.7rem 2rem;
+      /* margin: 0 0.7rem 2rem; */
       box-shadow: 0 2px 3px rgba(10, 10, 10, 0.1),
         0 0 0 1px rgba(10, 10, 10, 0.1);
     }
   }
 
   .card {
+    border: solid 2px white;
+    box-sizing: border-box;
     transition: all 0.3s ease-in-out;
-    &:hover {
-      transform: scale(1.03);
-    }
     cursor: pointer;
-    height: fit-content;
-    margin: 0 0.7rem 2rem;
     background-color: #fff;
-    box-shadow: 0 2px 3px rgba(10, 10, 10, 0.1), 0 0 0 1px rgba(10, 10, 10, 0.1);
+    /* box-shadow: 0 2px 3px rgba(10, 10, 10, 0.1), 0 0 0 1px rgba(10, 10, 10, 0.1); */
     color: #4a4a4a;
-    max-width: 100%;
-    max-width: 300px;
+
+    width: 100%;
+    @media screen and (min-width: 700px) {
+      width: 50%;
+    }
+    @media screen and (min-width: 900px) {
+      width: 33.333%;
+    }
+    @media screen and (min-width: 1000px) {
+      width: 25%;
+    }
     position: relative;
-    > .image {
+
+    img {
+      width: 100%;
+      height: auto;
       display: block;
       position: relative;
-      img {
-        // max-height: 200px;
-        max-width: 300px;
-        width: 100%;
-        height: auto;
-      }
     }
-    > .content {
-      background-color: transparent;
-      // padding: 1rem 1rem;
-      overflow: hidden;
-      text-overflow: clip;
-      white-space: nowrap;
-      p {
-        margin: 0;
-      }
-      .readmore {
-        float: right;
-        background-color: #4f7b4b;
-        border: none;
-        color: white;
-        padding: 0.3rem 1rem;
-        cursor: pointer;
-        position: absolute;
-        right: 0;
-        top: 0;
-        border: solid 1px #fff;
-        border-width: 0 0 0.5px 0.5px;
-      }
+
+    .readmore {
+      float: right;
+      background-color: #4f7b4b;
+      border: none;
+      color: white;
+      padding: 0.3rem 1rem;
+      cursor: pointer;
+      position: absolute;
+      right: 0;
+      top: 0;
+      border: solid 1px #fff;
+      border-width: 0 0 0.5px 0.5px;
     }
   }
-  .content-item-block {
-    /* width: 100%; */
-    /* max-width: 900px; */
-    display: inline-flex;
-    flex-wrap: wrap;
-    justify-content: center;
+
+  #slide3-items {
+    width: 100vw;
   }
 </style>

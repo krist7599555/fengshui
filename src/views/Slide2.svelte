@@ -5,9 +5,9 @@
 </script>
 
 {#if visible}
-  <section id="slide2">
+  <section id="slide2" class="k-font">
     <div class="profile" in:fly={{ y: 20, duration: 2400, delay: 500 }}>
-      <img src="img/yotpone.webp" alt="people yotpone" />
+      <img load="eager" src="img/yotpone.webp" alt="people yotpone" />
     </div>
     <div class="quote" in:fly={{ y: -20, duration: 2400, delay: 700 }}>
       ความยากดีมีจน ความสุขความทุกข์

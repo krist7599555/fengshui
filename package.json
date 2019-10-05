@@ -37,13 +37,14 @@
     "@fortawesome/free-solid-svg-icons": "^5.10.2",
     "axios": "^0.19.0",
     "casperjs": "^1.1.4",
+    "jquery": "^3.4.1",
     "markdown-it": "^9.1.0",
     "postcss": "^7.0.17",
     "rollup-plugin-json": "^4.0.0",
+    "sass": "^1.23.0",
     "shelljs": "^0.8.3",
     "sirv-cli": "^0.4.4",
-    "svero": "^1.0.0",
-    "waterfall": "^1.0.0"
+    "svero": "^1.0.0"
   },
   "scripts": {
     "build": "rollup -c",

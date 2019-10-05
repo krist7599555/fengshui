@@ -1,4 +1,6 @@
 <script>
+  import { onMount } from 'svelte'
+  import { createEventDispatcher } from 'svelte'
   import { fly } from 'svelte/transition'
   import Icon from 'fa-svelte'
   import {
@@ -19,16 +21,16 @@
 </script>
 
 {#if visible}
-  <div id="slide1">
+  <div id="slide1" class="k-font">
     <a aria-label="call phone" id="abs-contact" href="tel:0847550825">
       <Icon icon={faPhoneAlt} class="fa-1x" />
       <span>084-755-0825</span>
     </a>
     <br />
-    <div class="logo" in:fly={{ y: -20, duration: 700, delay: 500 }}>
+    <div class="logo" in:fly={{ y: -20, duration: 700, delay: 800 }}>
       <img src="assets/logo-3.svg" alt="logo" />
     </div>
-    <div class="body" in:fly={{ y: -20, duration: 1400, delay: 1000 }}>
+    <div class="body" in:fly={{ y: -20, duration: 1400, delay: 1300 }}>
       <h1>บ้านกำหนดชีวิต</h1>
       <p>ซินแสฮวงจุ้ย อ.ยศพนธ์ ประดิภาส</p>
       <br />
@@ -36,7 +38,7 @@
       <br /> -->
       <br />
     </div>
-    <div class="footer" in:fly={{ y: -20, duration: 1400, delay: 1700 }}>
+    <div class="footer" in:fly={{ y: -20, duration: 1400, delay: 2000 }}>
       <a aria-label="facebook link" href="https://facebook.com/bankamnodchivit">
         <Icon icon={faFacebookSquare} class="fa-2x" />
       </a>
