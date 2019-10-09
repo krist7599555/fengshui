@@ -28,20 +28,33 @@
     </a>
     <br />
     <div class="logo" in:fly={{ y: -20, duration: 700, delay: 800 }}>
-      <img src="assets/logo-3.svg" alt="logo" />
+      <!-- <img src="assets/logo-3.svg" alt="logo" /> -->
+      <img src="assets/logo-newAsset1.svg" alt="logo" width="230" />
     </div>
     <div class="body" in:fly={{ y: -20, duration: 1400, delay: 1300 }}>
-      <h1>บ้านกำหนดชีวิต</h1>
-      <p>ซินแสฮวงจุ้ย อ.ยศพนธ์ ประดิภาส</p>
+      <br />
+      <img src="assets/banAsset.svg" alt="txt ban" width="300" />
+      <br />
+      <img
+        src="assets/yodAsset.svg"
+        alt="txt yod"
+        width="230"
+        style="margin-top: 0.7rem" />
+      <!-- <h1>บ้านกำหนดชีวิต</h1>
+      <p>ซินแสฮวงจุ้ย อ.ยศพนธ์ ประดิภาส</p> -->
       <br />
       <!-- <button class="button">อ่านบทความ</button>
       <br /> -->
       <br />
     </div>
-    <div class="footer" in:fly={{ y: -20, duration: 1400, delay: 2000 }}>
+    <div
+      class="footer"
+      style="display: flex; justify-content: center"
+      in:fly={{ y: -20, duration: 1400, delay: 2000 }}>
       <a aria-label="facebook link" href="https://facebook.com/bankamnodchivit">
         <Icon icon={faFacebookSquare} class="fa-2x" />
       </a>
+      <div style="width: 25px" />
       <a aria-label="line link" href="https://facebook.com/bankamnodchivit">
         <Icon icon={faLine} class="fa-2x" />
       </a>
@@ -68,8 +81,7 @@
     > .logo {
       margin: 0 auto;
       color: white;
-      filter: brightness(10);
-      width: 200px;
+      width: 230px;
     }
     > .body {
       h1 {
@@ -101,6 +113,6 @@
     }
   }
   :global(.fa-2x) {
-    font-size: 2rem;
+    font-size: 2.5rem;
   }
 </style>
